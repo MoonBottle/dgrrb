@@ -8,6 +8,11 @@
 type DocumentId = string;
 type BlockId = string;
 type NotebookId = string;
+type AvId = string;
+type AvViewId = string;
+type AvKeyId = string;
+type AvRowId = string;
+type AvCellId = string;
 type PreviousID = BlockId;
 type ParentID = BlockId | DocumentId;
 

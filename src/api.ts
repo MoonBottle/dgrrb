@@ -14,6 +14,20 @@ async function request(url: string, data: any) {
   return res;
 }
 
+export async function requestRaw(url: string, data: any): Promise<IWebSocketData> {
+  return fetchSyncPost(url, data);
+}
+
+function compactObject<T extends Record<string, any>>(obj: T): Partial<T> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined)
+      continue;
+    out[k] = v;
+  }
+  return out as Partial<T>;
+}
+
 // **************************************** Noteboook ****************************************
 
 export async function lsNotebooks(): Promise<IReslsNotebooks> {
@@ -474,4 +488,80 @@ export async function version(): Promise<string> {
 
 export async function currentTime(): Promise<number> {
   return request("/api/system/currentTime", {});
+}
+
+// **************************************** Attribute View (Database / AV) ****************************************
+
+export async function getAttributeView(id: AvId): Promise<IResGetAttributeView> {
+  return request("/api/av/getAttributeView", { id });
+}
+
+export async function renderAttributeView(
+  id: AvId,
+  options?: {
+    viewID?: AvViewId;
+    query?: string;
+    page?: number;
+    pageSize?: number;
+  }
+): Promise<IResRenderAttributeView> {
+  const payload = compactObject({
+    id,
+    viewID: options?.viewID,
+    query: options?.query,
+    page: options?.page,
+    pageSize: options?.pageSize,
+  });
+  return request("/api/av/renderAttributeView", payload);
+}
+
+export async function getAttributeViewKeys(id: AvId): Promise<IAVKey[]> {
+  return request("/api/av/getAttributeViewKeys", { id });
+}
+
+// Some SiYuan versions use /api/av/getAttributeViewKeys with a BlockId to
+// return the attribute view key-values for that block (used to locate cellID).
+export async function getAttributeViewKeysOfBlock(id: BlockId): Promise<any> {
+  return request("/api/av/getAttributeViewKeys", { id });
+}
+
+export async function getAttributeViewKeysByAvID(
+  avID: AvId
+): Promise<IResGetAttributeViewKeysByAvID> {
+  return request("/api/av/getAttributeViewKeysByAvID", { avID });
+}
+
+export async function setAttributeViewBlockAttr(
+  avID: AvId,
+  keyID: AvKeyId,
+  rowID: AvRowId,
+  cellID: AvCellId,
+  value: any
+) {
+  const payload = {
+    avID,
+    keyID,
+    rowID,
+    cellID,
+    value,
+  };
+  return request("/api/av/setAttributeViewBlockAttr", payload);
+}
+
+export type IAddAttributeViewBlocksSrc = {
+  id: BlockId;
+  isDetached: boolean;
+};
+
+export async function addAttributeViewBlocks(
+  avID: AvId,
+  srcs: IAddAttributeViewBlocksSrc[]
+) {
+  const payload = { avID, srcs };
+  return request("/api/av/addAttributeViewBlocks", payload);
+}
+
+export async function removeAttributeViewBlocks(avID: AvId, srcIDs: BlockId[]) {
+  const payload = { avID, srcIDs };
+  return request("/api/av/removeAttributeViewBlocks", payload);
 }
