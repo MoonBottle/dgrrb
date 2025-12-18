@@ -172,7 +172,13 @@ onMounted(() => {
 
     // start_date is Date inside gantt after parsing
     const start = task.start_date ? toYmd(task.start_date) : undefined;
-    const end = task.end_date ? toYmd(task.end_date) : undefined;
+    let end: string | undefined;
+    if (task.end_date) {
+      // Gantt uses exclusive end date (start of next day). 
+      // Subtract 1 day to convert back to inclusive end date for SiYuan.
+      const d = new Date(task.end_date.getTime() - 24 * 60 * 60 * 1000);
+      end = toYmd(d);
+    }
     const payload = {
       rowId,
       start,
