@@ -100,6 +100,15 @@
         </table>
       </div>
 
+      <DhtmlxGantt
+        v-if="tasks.length"
+        :plugin="props.plugin"
+        :tasks="tasks"
+        :key-type-by-id="keyTypeById"
+        :config="config!"
+        :on-update="onGanttUpdate"
+      />
+
       <div class="dgrrb-taskgantt__report">
         <div class="dgrrb-taskgantt__reportHeader">
           <div class="dgrrb-taskgantt__reportTitle">日报/月报汇总</div>
@@ -137,6 +146,7 @@ import { showMessage } from "siyuan";
 import { computed, onMounted, ref } from "vue";
 import { getAttributeViewKeysByAvID, getAttributeViewKeysOfBlock, renderAttributeView, requestRaw, setAttributeViewBlockAttr } from "@/api";
 import { parseRenderAttributeViewToTasks, type Task, type TaskAvConfig } from "@/domain/task";
+import DhtmlxGantt from "@/ui/DhtmlxGantt.vue";
 
 const props = defineProps<{
   plugin: Plugin;
@@ -292,7 +302,7 @@ function buildValue(keyType: string | undefined, input: any) {
   }
 }
 
-async function updateCell(rowId: string, keyID: string, input: any) {
+async function updateCell(rowId: string, keyID: string, input: any, options?: { reloadAfter?: boolean }) {
   if (!config.value?.avID)
     return;
   const cellID = await ensureCellId(rowId, config.value.avID, keyID);
@@ -308,10 +318,28 @@ async function updateCell(rowId: string, keyID: string, input: any) {
     cellID,
     buildValue(keyType, input),
   );
+  if (options?.reloadAfter !== false)
+    await reload();
+}
+
+async function onGanttUpdate(payload: { rowId: string; start?: string; end?: string; progress?: number; parentId?: string }) {
+  if (!config.value?.avID)
+    return;
+
+  // We apply updates only for the configured columns
+  // Note: updateCell 会触发 reload；这里按顺序串行写入，避免并发覆盖
+  if (config.value.startKeyID && payload.start)
+    await updateCell(payload.rowId, config.value.startKeyID, payload.start, { reloadAfter: false });
+  if (config.value.endKeyID && payload.end)
+    await updateCell(payload.rowId, config.value.endKeyID, payload.end, { reloadAfter: false });
+  if (config.value.progressKeyID && payload.progress !== undefined)
+    await updateCell(payload.rowId, config.value.progressKeyID, payload.progress, { reloadAfter: false });
+  if (config.value.parentKeyID !== undefined && payload.parentId !== undefined)
+    await updateRelation(payload.rowId, config.value.parentKeyID, payload.parentId, { reloadAfter: false });
   await reload();
 }
 
-async function updateRelation(rowId: string, keyID: string, parentId: string) {
+async function updateRelation(rowId: string, keyID: string, parentId: string, options?: { reloadAfter?: boolean }) {
   if (!config.value?.avID)
     return;
   const cellID = await ensureCellId(rowId, config.value.avID, keyID);
@@ -323,7 +351,7 @@ async function updateRelation(rowId: string, keyID: string, parentId: string) {
   // 如果该列其实不是 relation（例如你截图里“父任务”是 text），就走普通写入
   const keyType = keyTypeById.value[keyID];
   if (keyType && keyType !== "relation") {
-    await updateCell(rowId, keyID, parentId);
+    await updateCell(rowId, keyID, parentId, options);
     return;
   }
 
@@ -341,7 +369,8 @@ async function updateRelation(rowId: string, keyID: string, parentId: string) {
       value,
     });
     if (resp.code === 0) {
-      await reload();
+      if (options?.reloadAfter !== false)
+        await reload();
       return;
     }
   }

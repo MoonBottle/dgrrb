@@ -17,6 +17,7 @@
     "build": "vite build"
   },
   "dependencies": {
+    "dhtmlx-gantt": "^9.0.0",
     "vue": "^3.3.8"
   },
   "devDependencies": {
