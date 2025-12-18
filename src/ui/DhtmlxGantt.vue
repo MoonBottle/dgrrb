@@ -71,7 +71,8 @@ function diffDays(start: Date, end: Date): number {
   const a = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
   const b = new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime();
   const d = Math.round((b - a) / ms);
-  return Math.max(1, d);
+  // Add 1 to make it inclusive (e.g. 14th to 18th is 5 days)
+  return Math.max(1, d + 1);
 }
 
 function applyTasks() {
@@ -86,7 +87,9 @@ function applyTasks() {
       const parent = (props.config.parentKeyID && parentRef) ? (ganttIdByRef.value.get(parentRef) || 0) : 0;
 
       const start = t.start ? toDate(t.start) : new Date();
-      const end = t.end ? toDate(t.end) : new Date(start.getTime() + 24 * 60 * 60 * 1000);
+      // If t.end exists, diffDays will handle the inclusive duration. 
+      // If not, we default to 1 day (today or start day).
+      const end = t.end ? toDate(t.end) : start;
       const progress = t.progress !== undefined && t.progress !== null ? Math.max(0, Math.min(1, t.progress / 100)) : 0;
       return {
         id,
