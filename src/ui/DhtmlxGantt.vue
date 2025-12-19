@@ -14,6 +14,7 @@ import type { Plugin } from "siyuan";
 import { openTab } from "siyuan";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { Task } from "@/domain/task";
+import { extractId } from "@/domain/task";
 
 const props = defineProps<{
   plugin: Plugin;
@@ -80,41 +81,67 @@ function applyTasks() {
     return;
   isApplying.value = true;
   try {
-    const data = props.tasks.map((t) => {
+    // For hierarchy detection: identify which IDs are actually consumed as parents
+    const parentIdsInUse = new Set<string>();
+    const taskListForGantt = props.tasks.map((t) => {
       const id = String(t.blockId || t.docId);
-      // Resolve parent: check if parentId refers to any task's blockId or docId in our current list
-      const parentRef = t.parentId ? String(t.parentId) : "";
-      const parent = (props.config.parentKeyID && parentRef) ? (ganttIdByRef.value.get(parentRef) || 0) : 0;
+      const parentRef = t.parentId ? extractId(t.parentId).trim() : "";
+      
+      // Resolve parentRef to the actual ID used in the Gantt chart
+      let parent: string | number = 0;
+      if (props.config.parentKeyID && parentRef) {
+          const resolved = ganttIdByRef.value.get(parentRef);
+          if (resolved) {
+              parent = String(resolved);
+          } else {
+              console.info(`[dgrrb] parentRef "${parentRef}" not found in current view for task "${t.title}"`);
+          }
+      }
+      
+      // If we found a parent ID, but it's the SAME as our current ID, set to 0 to prevent cycles
+      if (String(parent) === id) {
+          parent = 0;
+      }
 
+      if (parent !== 0)
+        parentIdsInUse.add(String(parent));
+
+      return { t, id, parent };
+    });
+
+    const data = taskListForGantt.map(({ t, id, parent }) => {
       const start = t.start ? toDate(t.start) : new Date();
-      // If t.end exists, diffDays will handle the inclusive duration. 
-      // If not, we default to 1 day (today or start day).
       const end = t.end ? toDate(t.end) : start;
       const progress = t.progress !== undefined && t.progress !== null ? Math.max(0, Math.min(1, t.progress / 100)) : 0;
+      
+      const hasChildren = parentIdsInUse.has(id);
+
       return {
         id,
         text: t.title,
-        // Use Date objects to avoid date string parsing issues across environments
         start_date: start,
         duration: diffDays(start, end),
         progress,
         parent,
-        rowId: t.docId, // keep rowId for AV updates
+        type: hasChildren ? "project" : "task",
+        rowId: t.docId, 
         open: true,
       };
     });
 
-    console.debug("[dgrrb] gantt applying data. IDs:", data.map(d => d.id), "Parents:", data.map(d => d.parent));
-    if (data.length > 0) {
-      console.debug("[dgrrb] gantt sample task:", data[0]);
-    }
+    console.info("[dgrrb] gantt ID mapping:", Object.fromEntries(ganttIdByRef.value));
+    console.info("[dgrrb] gantt task data:", data.map(d => ({ 
+      id: d.id, 
+      parent: d.parent, 
+      parentType: typeof d.parent,
+      text: d.text 
+    })));
 
     gantt.clearAll();
-    // Use both 'data' and 'tasks' keys for maximum compatibility across versions
     gantt.parse({ data, tasks: data });
     lastParsedCount.value = (gantt as any).getTaskCount?.() ?? data.length;
     gantt.render();
-    console.debug("[dgrrb] gantt parsed count:", lastParsedCount.value);
+    console.info("[dgrrb] gantt parsed count:", lastParsedCount.value);
   } catch (err) {
     console.error("[dgrrb] gantt apply error:", err);
   } finally {
@@ -131,20 +158,49 @@ onMounted(() => {
 
   gantt.config.autosize = "y";
   gantt.config.fit_tasks = true;
+  gantt.config.open_tree_initially = true;
   gantt.config.show_progress = true;
+  gantt.config.min_column_width = 40;
   gantt.config.row_height = 28;
   gantt.config.bar_height = 20;
   gantt.config.grid_width = 360;
   gantt.config.date_format = "%Y-%m-%d %H:%i";
+
+  // Enable reordering and tree maintenance
+  gantt.config.order_branch = true;
+  gantt.config.order_branch_free = true;
+  gantt.config.grid_indent = 30; // More space for tree indentation
+
+  gantt.templates.grid_row_class = (start: Date, end: Date, task: any) => {
+    if (gantt.hasChild(task.id))
+      return "dgrrb-gantt-parent-row";
+    return "";
+  };
+
+  gantt.templates.task_class = (start: Date, end: Date, task: any) => {
+    if (gantt.hasChild(task.id))
+      return "dgrrb-gantt-parent-task";
+    return "";
+  };
+
   gantt.config.scales = [
     { unit: "month", step: 1, format: "%Y-%m" },
     { unit: "day", step: 1, format: "%m-%d" },
   ];
 
   gantt.config.columns = [
-    { name: "text", label: "任务", tree: true, width: 220 },
-    { name: "start_date", label: "开始", align: "center", width: 70 },
-    { name: "end_date", label: "结束", align: "center", width: 70 },
+    {
+      name: "text",
+      label: "任务",
+      tree: true,
+      width: 220,
+      template: (t: any) => {
+        const hasChild = gantt.hasChild(t.id);
+        return `<span class="${hasChild ? 'dgrrb-gantt-bold' : ''}">${t.text}</span>`;
+      },
+    },
+    { name: "start_date", label: "开始", align: "center", width: 80 },
+    { name: "end_date", label: "结束", align: "center", width: 80 },
     { name: "progress", label: "进度", align: "center", width: 60, template: (t: any) => `${Math.round((t.progress || 0) * 100)}%` },
   ];
 
@@ -179,13 +235,22 @@ onMounted(() => {
       const d = new Date(task.end_date.getTime() - 24 * 60 * 60 * 1000);
       end = toYmd(d);
     }
+
+    // Resolve parent back to original docId/blockId string expected by SiYuan
+    // Gantt's task.parent is the ID of the parent task (or 0)
+    let parentId = "";
+    if (task.parent && task.parent !== 0) {
+      parentId = String(task.parent);
+    }
+
     const payload = {
       rowId,
       start,
       end,
       progress: task.progress !== undefined ? Math.round(task.progress * 100) : undefined,
-      parentId: task.parent && task.parent !== 0 ? String(task.parent) : "",
+      parentId,
     };
+    console.debug("[dgrrb] gantt sync payload:", payload);
     await props.onUpdate(payload);
   };
 
@@ -244,6 +309,33 @@ onBeforeUnmount(() => {
 .dgrrb-gantt {
   width: 100%;
   height: 520px;
+
+  :deep(.dgrrb-gantt-parent-row) {
+    background: var(--b3-theme-surface-lighter);
+  }
+
+  :deep(.dgrrb-gantt-bold) {
+    font-weight: 600;
+    color: var(--b3-theme-on-surface);
+  }
+
+  :deep(.gantt_tree_icon) {
+    opacity: 0.8;
+  }
+
+  /* Increase contrast for icons if needed */
+  :deep(.gantt_folder_open), :deep(.gantt_folder_closed), :deep(.gantt_file) {
+    filter: saturate(1.5) contrast(1.2);
+  }
+
+  :deep(.gantt_tree_content) {
+    overflow: visible !important;
+  }
+
+  /* Make sure branch lines / tree is visible */
+  :deep(.gantt_tree_icon) {
+    margin-right: 4px;
+  }
 }
 </style>
 

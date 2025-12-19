@@ -82,28 +82,29 @@ export function valueToText(v: any): string {
     return "";
   }
   if (typeof v === "object") {
-    if (v.id !== undefined)
-      return valueToText(v.id);
-    if (v.blockID !== undefined)
-      return valueToText(v.blockID);
-    if (v.blockId !== undefined)
-      return valueToText(v.blockId);
     if (v.text?.content !== undefined)
       return valueToText(v.text.content);
     if (v.block?.content !== undefined)
       return valueToText(v.block.content);
     if (v.number?.content !== undefined)
       return valueToText(v.number.content);
+    if (v.date?.content !== undefined)
+      return valueToText(v.date.content);
+    if (v.content !== undefined)
+      return valueToText(v.content);
     if (v.relation !== undefined)
       return valueToText(v.relation);
     if (v.mSelect !== undefined)
       return valueToText(v.mSelect);
     if (v.select !== undefined)
       return valueToText(v.select);
-    if (v.date?.content !== undefined)
-      return valueToText(v.date.content);
-    if (v.content !== undefined)
-      return valueToText(v.content);
+
+    if (v.id !== undefined)
+      return valueToText(v.id);
+    if (v.blockID !== undefined)
+      return valueToText(v.blockID);
+    if (v.blockId !== undefined)
+      return valueToText(v.blockId);
   }
   return "";
 }
@@ -176,6 +177,15 @@ function extractCellIdAndValue(cell: any): TaskCell {
   };
 }
 
+export function extractId(v: any): string {
+  const s = valueToText(v).trim();
+  if (!s)
+    return "";
+  // Check for SiYuan block ref formats: ((id)) or ((id "title")) or [[id]]
+  const match = s.match(/^\(\(([a-zA-Z0-9-]+)(?:\s+"[^"]*")?\)\)$/) || s.match(/^\[\[([a-zA-Z0-9-]+)\]\]$/);
+  return match ? match[1] : s;
+}
+
 export function parseRenderAttributeViewToTasks(
   renderRes: any,
   config: TaskAvConfig
@@ -231,7 +241,7 @@ export function parseRenderAttributeViewToTasks(
     const status = config.statusKeyID ? valueToText(cells[config.statusKeyID]?.value) : undefined;
     const progress = config.progressKeyID ? valueToNumber(cells[config.progressKeyID]?.value) : undefined;
 
-    const parentId = config.parentKeyID ? valueToText(cells[config.parentKeyID]?.value) : undefined;
+    const parentId = config.parentKeyID ? extractId(cells[config.parentKeyID]?.value) : undefined;
 
     tasks.push({
       docId: String(docId),
@@ -243,6 +253,14 @@ export function parseRenderAttributeViewToTasks(
       progress,
       parentId,
       cells,
+    });
+  }
+  if (tasks.length > 0) {
+    console.info("[dgrrb] parsed tasks (sample 0):", {
+      title: tasks[0].title,
+      docId: tasks[0].docId,
+      blockId: tasks[0].blockId,
+      parentId: tasks[0].parentId,
     });
   }
   return tasks;
