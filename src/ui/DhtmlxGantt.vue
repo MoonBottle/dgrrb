@@ -11,7 +11,7 @@
 import "dhtmlx-gantt/codebase/dhtmlxgantt.css";
 import { gantt } from "dhtmlx-gantt";
 import type { Plugin } from "siyuan";
-import { openTab } from "siyuan";
+import { confirm, Menu, openTab } from "siyuan";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { Task } from "@/domain/task";
 import { extractId } from "@/domain/task";
@@ -43,6 +43,7 @@ const props = defineProps<{
     start_date: Date;
     duration: number;
   }) => Promise<void> | void;
+  onDelete: (rowId: string) => Promise<void> | void;
 }>();
 
 const el = ref<HTMLDivElement>();
@@ -145,7 +146,7 @@ function applyTasks() {
     })));
 
     gantt.clearAll();
-    gantt.parse({ data, tasks: data });
+    (gantt as any).parse({ data, tasks: data });
     lastParsedCount.value = (gantt as any).getTaskCount?.() ?? data.length;
     gantt.render();
     console.info("[dgrrb] gantt parsed count:", lastParsedCount.value);
@@ -287,6 +288,98 @@ onMounted(() => {
       duration: task.duration,
     });
   }));
+
+  // 处理右键菜单事件
+  ganttEvents.push(gantt.attachEvent("onContextMenu", (taskId: string | number) => {
+    // 只在任务上显示右键菜单
+    if (!taskId) {
+      return true; // 允许默认行为
+    }
+    return false; // 阻止默认行为
+  }));
+
+  // 监听甘特图容器的右键点击事件
+  let handleContextMenu: ((e: MouseEvent) => void) | null = null;
+  if (el.value) {
+    handleContextMenu = async (e: MouseEvent) => {
+      // 检查是否点击在任务行上
+      const target = e.target as HTMLElement;
+      const taskRow = target.closest(".gantt_row");
+      if (!taskRow) {
+        return;
+      }
+
+      // 获取任务ID
+      const taskIdAttr = taskRow.getAttribute("task_id");
+      if (!taskIdAttr) {
+        return;
+      }
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const taskId = taskIdAttr;
+      const task = gantt.getTask(taskId) as any;
+      if (!task) {
+        return;
+      }
+
+      const rowId = task?.rowId || (ganttIdByRef.value.get(String(taskId)));
+      if (!rowId) {
+        return;
+      }
+
+      // 使用思源的 Menu API 创建右键菜单
+      const menu = new Menu();
+      
+      menu.addItem({
+        icon: "iconPlus",
+        label: "添加子任务",
+        click: () => {
+          const parentGanttId = String(taskId);
+          const newTask = {
+            text: "新子任务",
+            start_date: task.start_date || new Date(),
+            duration: 1,
+            parent: parentGanttId,
+          };
+          gantt.addTask(newTask, parentGanttId);
+          // onAfterTaskAdd 会自动触发 onCreate
+        },
+      });
+
+      menu.addItem({
+        icon: "iconTrashcan",
+        label: "删除任务",
+        click: async () => {
+          confirm(
+            "删除任务",
+            `确定要删除任务 "${task.text}" 吗？此操作将从数据库中删除该行。`,
+            async () => {
+              await props.onDelete(rowId);
+              // 从甘特图中删除任务
+              gantt.deleteTask(taskId);
+            }
+          );
+        },
+      });
+
+      // 显示菜单
+      menu.open({
+        x: e.clientX,
+        y: e.clientY,
+      });
+    };
+
+    el.value.addEventListener("contextmenu", handleContextMenu);
+    
+    // 在组件卸载时清理事件监听器
+    onBeforeUnmount(() => {
+      if (el.value && handleContextMenu) {
+        el.value.removeEventListener("contextmenu", handleContextMenu);
+      }
+    });
+  }
 
   gantt.init(el.value);
   applyTasks();

@@ -108,6 +108,7 @@
         :config="config!"
         :on-update="onGanttUpdate"
         :on-create="onGanttCreate"
+        :on-delete="onGanttDelete"
       />
 
       <div class="dgrrb-taskgantt__report">
@@ -152,6 +153,7 @@ import {
   getAttributeViewKeysByAvID,
   getAttributeViewKeysOfBlock,
   getBlockByID,
+  removeAttributeViewBlocks,
   renderAttributeView,
   requestRaw,
   setAttributeViewBlockAttr,
@@ -511,6 +513,28 @@ async function onGanttUpdate(payload: { rowId: string; start?: string; end?: str
     await batchUpdateCells(payload.rowId, updates, { reloadAfter: true });
   } else {
     await reload();
+  }
+}
+
+async function onGanttDelete(rowId: string) {
+  console.info("[dgrrb] onGanttDelete starting:", rowId);
+  if (!config.value?.avID)
+    return;
+
+  try {
+    // 解析 rowId 为真正的 row.id (docId)
+    const actualRowId = resolveRowId(rowId);
+    console.info(`[dgrrb] onGanttDelete: resolved rowId ${rowId} -> ${actualRowId}`);
+
+    // 从数据库中删除该行
+    await removeAttributeViewBlocks(config.value.avID, [actualRowId]);
+
+    // 刷新数据
+    await reload();
+    showMessage("删除任务成功", 2000, "info");
+  } catch (e: any) {
+    console.error("[dgrrb] onGanttDelete error:", e);
+    showMessage(`删除失败: ${e.message || String(e)}`, 8000, "error");
   }
 }
 
