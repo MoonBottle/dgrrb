@@ -112,6 +112,7 @@
         :on-update="onGanttUpdate"
         :on-create="onGanttCreate"
         :on-delete="onGanttDelete"
+        :on-detail-saved="reload"
       />
 
       <div class="dgrrb-taskgantt__report">

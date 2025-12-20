@@ -48,6 +48,8 @@ const props = defineProps<{
     duration: number;
   }) => Promise<void> | void;
   onDelete: (rowId: string) => Promise<void> | void;
+  /** callback when detail dialog saved */
+  onDetailSaved?: () => Promise<void> | void;
 }>();
 
 const el = ref<HTMLDivElement>();
@@ -518,17 +520,18 @@ function openDetailDialog(rowId: string) {
       avID: props.config.avID,
       rawData: props.rawData,
       keyTypeById: props.keyTypeById,
-      onSaved: () => {
-        // 保存成功后，触发父组件的更新
-        if (props.onUpdate) {
-          // 可以触发重新加载，或者只更新特定字段
-          // 这里我们让父组件处理刷新
-          console.info("[dgrrb] Detail dialog saved, parent should reload");
-        }
+      onSaved: async () => {
+        // 保存成功后，触发父组件的重新加载
+        console.info("[dgrrb] Detail dialog saved, triggering reload");
         if (vueApp) {
           vueApp.unmount();
         }
         dialog.destroy();
+        
+        // 调用父组件的重新加载回调
+        if (props.onDetailSaved) {
+          await props.onDetailSaved();
+        }
       },
       onClose: () => {
         if (vueApp) {
