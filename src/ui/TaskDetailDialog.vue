@@ -159,8 +159,10 @@ const saving = ref(false);
 // 构建字段值的函数（从 TaskGanttApp 复制）
 function buildValue(keyType: string | undefined, input: any) {
   switch (keyType) {
+    case "block":
+      return { block: { content: String(input ?? "") } };
     case "number":
-      return { number: { content: Number(input), isNotEmpty: true } };
+      return { number: { content: Number(input) } };
     case "select":
       return { mSelect: input ? [{ content: String(input) }] : [] };
     case "mSelect":
@@ -177,7 +179,6 @@ function buildValue(keyType: string | undefined, input: any) {
       return {
         date: {
           content: input ? new Date(`${String(input)}T00:00:00`).getTime() : 0,
-          isNotEmpty: !!input,
           hasEndDate: false,
           isNotTime: true,
           content2: 0,
@@ -189,7 +190,7 @@ function buildValue(keyType: string | undefined, input: any) {
       return { relation: [{ content: String(input) }] };
     case "text":
     default:
-      return { text: { content: String(input ?? ""), isNotEmpty: !!(input ?? "") } };
+      return { text: { content: String(input ?? "") } };
   }
 }
 
@@ -250,6 +251,11 @@ function extractFieldValue(row: any, keyID: string): any {
   
   // 根据类型转换
   const keyType = props.keyTypeById[keyID];
+  
+  if (keyType === "block" && value?.block) {
+    // block 类型：直接使用 block.content
+    return value.block.content || "";
+  }
   
   if (keyType === "date" && value?.date?.content) {
     const date = new Date(value.date.content);

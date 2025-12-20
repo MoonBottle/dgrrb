@@ -329,8 +329,10 @@ async function ensureCellId(rowId: string, avID: string, keyID: string, retry = 
 
 function buildValue(keyType: string | undefined, input: any) {
   switch (keyType) {
+    case "block":
+      return { block: { content: String(input ?? "") } };
     case "number":
-      return { number: { content: Number(input), isNotEmpty: true } };
+      return { number: { content: Number(input) } };
     case "mSelect":
     case "select":
       return { mSelect: input ? [{ content: String(input) }] : [] };
@@ -340,7 +342,6 @@ function buildValue(keyType: string | undefined, input: any) {
       return {
         date: {
           content: input ? new Date(`${String(input)}T00:00:00`).getTime() : 0,
-          isNotEmpty: !!input,
           hasEndDate: false,
           isNotTime: true,
           content2: 0,
@@ -353,7 +354,7 @@ function buildValue(keyType: string | undefined, input: any) {
       return { relation: [{ content: String(input) }] };
     case "text":
     default:
-      return { text: { content: String(input ?? ""), isNotEmpty: !!(input ?? "") } };
+      return { text: { content: String(input ?? "") } };
   }
 }
 
