@@ -565,3 +565,17 @@ export async function removeAttributeViewBlocks(avID: AvId, srcIDs: BlockId[]) {
   const payload = { avID, srcIDs };
   return request("/api/av/removeAttributeViewBlocks", payload);
 }
+
+export type IBatchSetAttributeViewBlockAttrsValue = {
+  keyID: AvKeyId;
+  itemID: AvRowId;
+  value: any;
+};
+
+export async function batchSetAttributeViewBlockAttrs(
+  avID: AvId,
+  values: IBatchSetAttributeViewBlockAttrsValue[]
+) {
+  const payload = { avID, values };
+  return requestRaw("/api/av/batchSetAttributeViewBlockAttrs", payload);
+}

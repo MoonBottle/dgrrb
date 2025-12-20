@@ -181,7 +181,8 @@ if (foundItem && foundItem.keyValues) {
 
 接口名称：批量设置值
 /api/av/batchSetAttributeViewBlockAttrs
-参数：
+示例参数：
+注意 itemId 就是行 ID，对应 renderAttributeView 接口的返回字段为 data.view.rows[0].id
 {
     "avID": "20250716235026-51p7441",
     "values": [

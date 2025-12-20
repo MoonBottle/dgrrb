@@ -148,6 +148,7 @@ import { computed, onMounted, ref } from "vue";
 import {
   addAttributeViewBlocks,
   appendBlock,
+  batchSetAttributeViewBlockAttrs,
   getAttributeViewKeysByAvID,
   getAttributeViewKeysOfBlock,
   getBlockByID,
@@ -330,6 +331,133 @@ function buildValue(keyType: string | undefined, input: any) {
   }
 }
 
+/**
+ * 将 rowId（可能是 docId 或 blockId）映射到真正的 row.id（docId）
+ * itemID 必须是 row.id，而不是 block.id
+ */
+function resolveRowId(rowId: string): string {
+  // 首先尝试直接匹配 docId（row.id）
+  const taskByDocId = tasks.value.find(t => t.docId === rowId);
+  if (taskByDocId) {
+    return taskByDocId.docId; // docId 就是 row.id
+  }
+
+  // 如果没找到，尝试通过 blockId 查找对应的 docId
+  const taskByBlockId = tasks.value.find(t => t.blockId === rowId);
+  if (taskByBlockId) {
+    return taskByBlockId.docId; // 返回对应的 row.id
+  }
+
+  // 如果都没找到，尝试从 raw.value 中查找
+  if (raw.value) {
+    const view = raw.value?.view ?? raw.value?.data?.view;
+    const rows = view?.rows ?? view?.data?.rows ?? [];
+    for (const row of rows) {
+      const rowIdFromRow = row?.id ?? row?.rowID ?? row?.rowId;
+      if (rowIdFromRow === rowId) {
+        return String(rowIdFromRow);
+      }
+      // 检查 block.id
+      if (Array.isArray(row?.cells)) {
+        for (const cell of row.cells) {
+          if (cell?.value?.block?.id === rowId || cell?.value?.blockID === rowId) {
+            return String(row?.id ?? row?.rowID ?? row?.rowId);
+          }
+        }
+      }
+    }
+  }
+
+  // 如果都找不到，返回原始值（可能是新创建的行，还未刷新）
+  console.warn(`[dgrrb] resolveRowId: cannot resolve rowId ${rowId}, using as-is`);
+  return rowId;
+}
+
+async function batchUpdateCells(
+  rowId: string,
+  updates: Array<{ keyID: string; value: any; keyType?: string }>,
+  options?: { reloadAfter?: boolean }
+): Promise<boolean> {
+  if (!config.value?.avID || updates.length === 0)
+    return false;
+
+  // 将 rowId 映射到真正的 row.id（itemID 必须是 row.id，不是 block.id）
+  const actualRowId = resolveRowId(rowId);
+  console.info(`[dgrrb] batchUpdateCells: resolved rowId ${rowId} -> ${actualRowId}`);
+
+  // 构建批量请求的 values 数组
+  const values = updates.map(({ keyID, value, keyType }) => {
+    const actualKeyType = keyType || keyTypeById.value[keyID];
+    // 对于关系类型，使用第一种格式（如果失败会在外层重试其他格式）
+    // 对于其他类型，使用 buildValue 构建
+    const finalValue = actualKeyType === "relation" && value
+      ? { relation: [{ content: String(value) }] }
+      : buildValue(actualKeyType, value);
+
+    return {
+      keyID,
+      itemID: actualRowId, // itemID 必须是 row.id (docId)，不是 block.id
+      value: finalValue,
+    };
+  });
+
+  console.info(`[dgrrb] batchUpdateCells: row=${rowId}->${actualRowId}, updates=${updates.length}`, values);
+
+  try {
+    const resp = await batchSetAttributeViewBlockAttrs(config.value.avID, values);
+
+    if (resp && resp.code !== 0) {
+      console.error(`[dgrrb] batchUpdateCells failed:`, resp);
+
+      // 对于关系类型字段，如果批量接口失败，尝试多种格式
+      const relationUpdates = updates.filter((u) => {
+        const keyType = u.keyType || keyTypeById.value[u.keyID];
+        return keyType === "relation" && u.value;
+      });
+
+      if (relationUpdates.length > 0) {
+        console.info(`[dgrrb] batchUpdateCells: retrying relation fields with alternative formats...`);
+        // 尝试其他关系格式
+        const relationTries = [
+          { relation: [{ content: String(relationUpdates[0].value) }] },
+          { relation: [{ id: String(relationUpdates[0].value) }] },
+          { relation: { blockIDs: [String(relationUpdates[0].value)] } },
+        ];
+
+        for (const relationValue of relationTries) {
+          const retryValues = values.map((v) => {
+            const update = updates.find((u) => u.keyID === v.keyID);
+            if (update && (update.keyType || keyTypeById.value[update.keyID]) === "relation") {
+              return { ...v, value: relationValue };
+            }
+            return v;
+          });
+
+          const retryResp = await batchSetAttributeViewBlockAttrs(config.value.avID, retryValues);
+          if (retryResp.code === 0) {
+            console.info(`[dgrrb] batchUpdateCells: retry succeeded with format:`, relationValue);
+            if (options?.reloadAfter !== false)
+              await reload();
+            return true;
+          }
+        }
+      }
+
+      showMessage("批量更新失败", 8000, "error");
+      return false;
+    }
+
+    console.info(`[dgrrb] batchUpdateCells success`);
+    if (options?.reloadAfter !== false)
+      await reload();
+    return true;
+  } catch (e: any) {
+    console.error(`[dgrrb] batchUpdateCells error:`, e);
+    showMessage(`批量更新失败: ${e.message || String(e)}`, 8000, "error");
+    return false;
+  }
+}
+
 async function updateCell(rowId: string, keyID: string, input: any, options?: { reloadAfter?: boolean }) {
   if (!config.value?.avID)
     return;
@@ -364,17 +492,48 @@ async function onGanttUpdate(payload: { rowId: string; start?: string; end?: str
   if (!config.value?.avID)
     return;
 
-  // We apply updates only for the configured columns
-  // Note: updateCell 会触发 reload；这里按顺序串行写入，避免并发覆盖
-  if (config.value.startKeyID && payload.start)
-    await updateCell(payload.rowId, config.value.startKeyID, payload.start, { reloadAfter: false });
-  if (config.value.endKeyID && payload.end)
-    await updateCell(payload.rowId, config.value.endKeyID, payload.end, { reloadAfter: false });
-  if (config.value.progressKeyID && payload.progress !== undefined)
-    await updateCell(payload.rowId, config.value.progressKeyID, payload.progress, { reloadAfter: false });
-  if (config.value.parentKeyID !== undefined && payload.parentId !== undefined)
-    await updateRelation(payload.rowId, config.value.parentKeyID, payload.parentId, { reloadAfter: false });
-  await reload();
+  // 收集所有需要更新的字段
+  const updates: Array<{ keyID: string; value: any; keyType?: string }> = [];
+
+  if (config.value.startKeyID && payload.start !== undefined) {
+    updates.push({
+      keyID: config.value.startKeyID,
+      value: payload.start,
+      keyType: keyTypeById.value[config.value.startKeyID],
+    });
+  }
+
+  if (config.value.endKeyID && payload.end !== undefined) {
+    updates.push({
+      keyID: config.value.endKeyID,
+      value: payload.end,
+      keyType: keyTypeById.value[config.value.endKeyID],
+    });
+  }
+
+  if (config.value.progressKeyID && payload.progress !== undefined) {
+    updates.push({
+      keyID: config.value.progressKeyID,
+      value: payload.progress,
+      keyType: keyTypeById.value[config.value.progressKeyID],
+    });
+  }
+
+  if (config.value.parentKeyID !== undefined && payload.parentId !== undefined) {
+    const parentKeyType = keyTypeById.value[config.value.parentKeyID];
+    updates.push({
+      keyID: config.value.parentKeyID,
+      value: payload.parentId,
+      keyType: parentKeyType,
+    });
+  }
+
+  // 使用批量接口一次性更新所有字段
+  if (updates.length > 0) {
+    await batchUpdateCells(payload.rowId, updates, { reloadAfter: true });
+  } else {
+    await reload();
+  }
 }
 
 function toYmd(d: Date): string {
