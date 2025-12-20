@@ -1,10 +1,12 @@
 <template>
   <div class="dgrrb-taskgantt">
     <div class="dgrrb-taskgantt__header">
-      <div class="dgrrb-taskgantt__title">任务甘特（AV）</div>
+      <div class="dgrrb-taskgantt__title">
+        <span v-if="dbName">{{ dbName }}</span>
+        <span v-else>任务甘特（AV）</span>
+      </div>
       <div class="dgrrb-taskgantt__actions">
         <button class="b3-button b3-button--small" type="button" @click="reload">刷新</button>
-        <button class="b3-button b3-button--small" type="button" @click="openSetting">设置</button>
       </div>
     </div>
 
@@ -163,6 +165,7 @@ import DhtmlxGantt from "@/ui/DhtmlxGantt.vue";
 
 const props = defineProps<{
   plugin: Plugin;
+  dbId?: string;
 }>();
 
 type TaskAvConfig = {
@@ -184,6 +187,7 @@ const keyTypeById = ref<Record<string, string>>({});
 const reportFrom = ref(new Date().toISOString().slice(0, 10));
 const reportTo = ref(new Date().toISOString().slice(0, 10));
 const reportMd = ref("");
+const dbName = ref<string>("");
 
 function toArray(maybeArr: any): any[] {
   if (Array.isArray(maybeArr))
@@ -235,8 +239,26 @@ const rowCount = computed(() => {
 });
 
 async function loadConfig() {
+  console.log("[dgrrb] loadConfig called, dbId:", props.dbId);
+  if (props.dbId) {
+    // Load from database configs
+    const configs = await props.plugin.loadData("task-av-configs").catch(() => null) as Array<{ id: string; name: string; config: TaskAvConfig }> | null;
+    console.log("[dgrrb] Loaded configs:", configs);
+    const db = configs?.find(c => c.id === props.dbId);
+    if (db) {
+      config.value = db.config;
+      dbName.value = db.name;
+      console.log("[dgrrb] Found database config:", db);
+      return;
+    } else {
+      console.warn("[dgrrb] Database not found for dbId:", props.dbId);
+    }
+  }
+  // Fallback to old config (for backward compatibility)
   const saved = await props.plugin.loadData("task-av-config").catch(() => null) as TaskAvConfig | null;
   config.value = saved;
+  dbName.value = "";
+  console.log("[dgrrb] Using fallback config:", saved);
 }
 
 async function reload() {
@@ -666,11 +688,20 @@ async function updateRelation(rowId: string, keyID: string, parentId: string, op
 }
 
 function openSetting() {
-  showMessage("请在思源：设置 → 插件 → 本插件 → 设置 里配置 AV", 6000, "info");
-  props.plugin.openSetting();
+  if (props.dbId) {
+    props.plugin.openSetting(props.dbId);
+  } else {
+    props.plugin.openSetting();
+  }
 }
 
+// Expose reload method for tab update callback
+defineExpose({
+  reload,
+});
+
 onMounted(() => {
+  console.log("[dgrrb] TaskGanttApp mounted, dbId:", props.dbId);
   void reload();
 });
 

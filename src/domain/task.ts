@@ -8,6 +8,12 @@ export type TaskAvConfig = {
   progressKeyID?: string;
 };
 
+export type DatabaseConfig = {
+  id: string;
+  name: string;
+  config: TaskAvConfig;
+};
+
 export type TaskCell = {
   cellID?: string;
   value?: any;

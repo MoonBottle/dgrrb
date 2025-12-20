@@ -579,3 +579,18 @@ export async function batchSetAttributeViewBlockAttrs(
   const payload = { avID, values };
   return requestRaw("/api/av/batchSetAttributeViewBlockAttrs", payload);
 }
+
+export type IAddAttributeViewKeyOptions = {
+  name: string;
+  type: "text" | "number" | "select" | "multiSelect" | "date" | "url" | "email" | "phone" | "checkbox" | "relation" | "rollup";
+  icon?: string;
+  options?: Array<{ name: string; color?: string }>;
+};
+
+export async function addAttributeViewKey(
+  avID: AvId,
+  key: IAddAttributeViewKeyOptions
+): Promise<IWebSocketData> {
+  const payload = { avID, key };
+  return requestRaw("/api/av/addAttributeViewKey", payload);
+}
