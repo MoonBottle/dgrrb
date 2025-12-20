@@ -225,33 +225,138 @@ export default class PluginSample extends Plugin {
         
         console.log("[dgrrb] Vue app mounted, container:", container);
         
-        // Store reference to component instance for update callback
+        // Store reference to component instance and reload function for update callback
         setTimeout(() => {
           const rootElement = container.querySelector('.dgrrb-taskgantt');
           if (rootElement) {
             this._componentInstance = (rootElement as any).__vueParentComponent;
             console.log("[dgrrb] Component instance stored:", this._componentInstance);
+            
+            // Try to get reload function directly
+            if (this._componentInstance && this._componentInstance.exposed) {
+              this._reloadFn = this._componentInstance.exposed.reload;
+              console.log("[dgrrb] Reload function stored:", typeof this._reloadFn);
+            }
           } else {
             console.warn("[dgrrb] Component root element not found");
+          }
+          
+          // Listen for visibility changes to detect tab switching using IntersectionObserver
+          if (this.element) {
+            const intersectionObserver = new IntersectionObserver((entries) => {
+              entries.forEach((entry) => {
+                if (entry.isIntersecting && entry.intersectionRatio > 0) {
+                  // Tab became visible
+                  if (this._wasHidden) {
+                    console.log("[dgrrb] Tab became visible (IntersectionObserver), reloading...");
+                    console.log("[dgrrb] _reloadFn:", typeof this._reloadFn, this._reloadFn);
+                    console.log("[dgrrb] _componentInstance:", this._componentInstance);
+                    this._wasHidden = false;
+                    
+                    // Try multiple methods to call reload
+                    let reloaded = false;
+                    
+                    if (this._reloadFn && typeof this._reloadFn === 'function') {
+                      console.log("[dgrrb] Calling stored _reloadFn");
+                      try {
+                        this._reloadFn();
+                        reloaded = true;
+                      } catch (e) {
+                        console.error("[dgrrb] Error calling _reloadFn:", e);
+                      }
+                    }
+                    
+                    if (!reloaded && this._componentInstance && this._componentInstance.exposed) {
+                      if (typeof this._componentInstance.exposed.reload === 'function') {
+                        console.log("[dgrrb] Calling reload from component instance");
+                        try {
+                          this._componentInstance.exposed.reload();
+                          reloaded = true;
+                        } catch (e) {
+                          console.error("[dgrrb] Error calling component reload:", e);
+                        }
+                      }
+                    }
+                    
+                    // Fallback: try to find from DOM again
+                    if (!reloaded && this._vueContainer) {
+                      const rootElement = this._vueContainer.querySelector('.dgrrb-taskgantt');
+                      if (rootElement) {
+                        const component = (rootElement as any).__vueParentComponent;
+                        if (component && component.exposed && typeof component.exposed.reload === 'function') {
+                          console.log("[dgrrb] Calling reload from DOM component");
+                          try {
+                            component.exposed.reload();
+                            reloaded = true;
+                          } catch (e) {
+                            console.error("[dgrrb] Error calling DOM component reload:", e);
+                          }
+                        }
+                      }
+                    }
+                    
+                    // Last resort: click the reload button
+                    if (!reloaded && this._vueContainer) {
+                      const reloadBtn = this._vueContainer.querySelector('.dgrrb-taskgantt__actions button');
+                      if (reloadBtn && (reloadBtn as HTMLElement).textContent?.includes('刷新')) {
+                        console.log("[dgrrb] Clicking reload button as fallback");
+                        (reloadBtn as HTMLElement).click();
+                      } else {
+                        console.warn("[dgrrb] Could not find reload button");
+                      }
+                    }
+                  }
+                } else {
+                  // Tab became hidden
+                  this._wasHidden = true;
+                }
+              });
+            }, {
+              threshold: [0, 0.1, 1.0] // Trigger at 0%, 10%, and 100% visibility
+            });
+            
+            intersectionObserver.observe(this.element as HTMLElement);
+            this._visibilityObserver = intersectionObserver;
+            
+            // Also check initial visibility
+            const rect = (this.element as HTMLElement).getBoundingClientRect();
+            this._wasHidden = !(rect.width > 0 && rect.height > 0 && rect.top < window.innerHeight && rect.bottom > 0);
           }
         }, 100);
       },
       update(this: any) {
+        console.log("[dgrrb] Tab update called");
         // Refresh when tab is switched back
+        // Method 1: Use stored reload function
+        if (this._reloadFn && typeof this._reloadFn === 'function') {
+          console.log("[dgrrb] Calling stored reload function");
+          this._reloadFn();
+          return;
+        }
+        
+        // Method 2: Use stored component instance
         if (this._componentInstance && this._componentInstance.exposed) {
           if (typeof this._componentInstance.exposed.reload === 'function') {
+            console.log("[dgrrb] Calling reload from stored component instance");
             this._componentInstance.exposed.reload();
+            return;
           }
-        } else if (this._vueContainer) {
-          // Fallback: try to find component instance from DOM
+        }
+        
+        // Method 3: Find from DOM
+        if (this._vueContainer) {
           const rootElement = this._vueContainer.querySelector('.dgrrb-taskgantt');
           if (rootElement) {
             const component = (rootElement as any).__vueParentComponent;
             if (component && component.exposed && typeof component.exposed.reload === 'function') {
+              console.log("[dgrrb] Calling reload from DOM component");
               component.exposed.reload();
+              return;
             }
           }
         }
+        
+        console.warn("[dgrrb] Could not find reload method");
       },
       destroy(this: any) {
         try {
@@ -264,10 +369,16 @@ export default class PluginSample extends Plugin {
         } catch (e) {
           console.warn(e);
         }
+        if (this._visibilityObserver) {
+          this._visibilityObserver.disconnect();
+          this._visibilityObserver = null;
+        }
         this._vueApp = null;
         this._vueContainer = null;
         this._dbId = null;
         this._componentInstance = null;
+        this._reloadFn = null;
+        this._wasHidden = false;
       },
     });
   }

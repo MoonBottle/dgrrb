@@ -147,7 +147,7 @@
 <script setup lang="ts">
 import type { Plugin } from "siyuan";
 import { showMessage } from "siyuan";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onActivated, ref, onDeactivated } from "vue";
 import {
   addAttributeViewBlocks,
   appendBlock,
@@ -703,6 +703,17 @@ defineExpose({
 onMounted(() => {
   console.log("[dgrrb] TaskGanttApp mounted, dbId:", props.dbId);
   void reload();
+});
+
+// Handle tab activation (when switching back to this tab)
+onActivated(() => {
+  console.log("[dgrrb] TaskGanttApp activated, reloading...");
+  void reload();
+});
+
+// Optional: handle deactivation
+onDeactivated(() => {
+  console.log("[dgrrb] TaskGanttApp deactivated");
 });
 
 const displayTasks = computed(() => {
