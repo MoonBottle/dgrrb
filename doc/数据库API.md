@@ -179,6 +179,34 @@ if (foundItem && foundItem.keyValues) {
 }
 
 
+接口名称：批量设置值
+/api/av/batchSetAttributeViewBlockAttrs
+参数：
+{
+    "avID": "20250716235026-51p7441",
+    "values": [
+      {
+        "keyID": "20250716235026-njmx362",
+        "itemID": "20250716235124-6qqlnpw",
+        "value": {
+            "block": {
+                "content": "Test"
+            }
+        }
+      },
+      {
+        "keyID": "20250716235026-a0v1j35",
+        "itemID": "20250716235124-6qqlnpw",
+        "value": {
+            "number": {
+                "content": 111
+            }
+        }
+      }
+    ]
+}
+
+
 作者：Achuan-2
 链接：https://ld246.com/article/1733365731025
 来源：链滴
