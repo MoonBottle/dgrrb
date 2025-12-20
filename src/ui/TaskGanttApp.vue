@@ -107,6 +107,7 @@
         :key-type-by-id="keyTypeById"
         :config="config!"
         :on-update="onGanttUpdate"
+        :on-create="onGanttCreate"
       />
 
       <div class="dgrrb-taskgantt__report">
@@ -144,7 +145,16 @@
 import type { Plugin } from "siyuan";
 import { showMessage } from "siyuan";
 import { computed, onMounted, ref } from "vue";
-import { getAttributeViewKeysByAvID, getAttributeViewKeysOfBlock, renderAttributeView, requestRaw, setAttributeViewBlockAttr } from "@/api";
+import {
+  addAttributeViewBlocks,
+  appendBlock,
+  getAttributeViewKeysByAvID,
+  getAttributeViewKeysOfBlock,
+  getBlockByID,
+  renderAttributeView,
+  requestRaw,
+  setAttributeViewBlockAttr,
+} from "@/api";
 import { parseRenderAttributeViewToTasks, type Task, type TaskAvConfig } from "@/domain/task";
 import DhtmlxGantt from "@/ui/DhtmlxGantt.vue";
 
@@ -255,21 +265,39 @@ async function reload() {
   }
 }
 
-async function ensureCellId(rowId: string, avID: string, keyID: string): Promise<string | undefined> {
+async function ensureCellId(rowId: string, avID: string, keyID: string, retry = 3): Promise<string | undefined> {
   // first: from parsed tasks cache
   const t = tasks.value.find(x => x.docId === rowId);
   const cached = t?.cells?.[keyID]?.cellID;
   if (cached)
     return cached;
+  
+  console.info(`[dgrrb] ensureCellId: cache miss for row ${rowId} key ${keyID}. Task cells keys: ${Object.keys(t?.cells || {}).join(",")}`);
 
   // fallback: query by block id (docId)
-  const res = await getAttributeViewKeysOfBlock(rowId);
-  const list = res?.data ?? res;
-  const listArr = toArray(list);
-  const found = listArr.find((it: any) => it?.avID === avID);
-  const kv = found?.keyValues?.find((x: any) => x?.key?.id === keyID);
-  const id = kv?.values?.[0]?.id;
-  return id;
+  for (let i = 0; i < retry; i++) {
+    const res = await getAttributeViewKeysOfBlock(rowId);
+    const list = res?.data ?? res;
+    const listArr = toArray(list);
+    const found = listArr.find((it: any) => it?.avID === avID);
+    
+    if (!found) {
+        console.warn(`[dgrrb] ensureCellId: AV ${avID} not found in block KVs`);
+    } else {
+        const kv = found?.keyValues?.find((x: any) => x?.key?.id === keyID);
+        if (!kv) console.warn(`[dgrrb] ensureCellId: Key ${keyID} not found in KVs`);
+        else if (!kv.values?.length) console.warn(`[dgrrb] ensureCellId: Key ${keyID} found but values empty`);
+        
+        const id = kv?.values?.[0]?.id;
+        if (id) return id;
+    }
+
+    if (retry > 1 && i < retry - 1) {
+      console.info(`[dgrrb] cellID for row ${rowId} key ${keyID} not found, retrying (${i + 1}/${retry})...`);
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+  return undefined;
 }
 
 function buildValue(keyType: string | undefined, input: any) {
@@ -298,28 +326,38 @@ function buildValue(keyType: string | undefined, input: any) {
       return { relation: [{ content: String(input) }] };
     case "text":
     default:
-      return { text: { content: String(input ?? "") } };
+      return { text: { content: String(input ?? ""), isNotEmpty: !!(input ?? "") } };
   }
 }
 
 async function updateCell(rowId: string, keyID: string, input: any, options?: { reloadAfter?: boolean }) {
   if (!config.value?.avID)
     return;
-  const cellID = await ensureCellId(rowId, config.value.avID, keyID);
+  const cellID = await ensureCellId(rowId, config.value.avID, keyID, 5);
   if (!cellID) {
     showMessage("无法定位 cellID（请先确保该列在数据库里对该行有值/或刷新后重试）", 8000, "error");
     return;
   }
   const keyType = keyTypeById.value[keyID];
-  await setAttributeViewBlockAttr(
-    config.value.avID,
+  console.info(`[dgrrb] updateCell: row=${rowId}, key=${keyID}, type=${keyType}, input=${input}, cellID=${cellID}`);
+  // use requestRaw to see actual error from SiYuan
+  const resp = await requestRaw("/api/av/setAttributeViewBlockAttr", {
+    avID: config.value.avID,
     keyID,
-    rowId,
+    rowID: rowId,
     cellID,
-    buildValue(keyType, input),
-  );
+    value: buildValue(keyType, input),
+  });
+
+  if (resp && resp.code !== 0) {
+      console.error(`[dgrrb] updateCell failed:`, resp);
+      return false;
+  } else {
+      console.info(`[dgrrb] updateCell success.`);
+  }
   if (options?.reloadAfter !== false)
     await reload();
+  return true;
 }
 
 async function onGanttUpdate(payload: { rowId: string; start?: string; end?: string; progress?: number; parentId?: string }) {
@@ -339,20 +377,109 @@ async function onGanttUpdate(payload: { rowId: string; start?: string; end?: str
   await reload();
 }
 
-async function updateRelation(rowId: string, keyID: string, parentId: string, options?: { reloadAfter?: boolean }) {
+function toYmd(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+async function onGanttCreate(payload: { text: string; parent?: string; start_date: Date; duration: number }) {
+  console.info("[dgrrb] onGanttCreate starting:", payload);
   if (!config.value?.avID)
     return;
-  const cellID = await ensureCellId(rowId, config.value.avID, keyID);
+
+  let parentID: string | undefined;
+  if (payload.parent) {
+    parentID = payload.parent;
+  } else {
+    const refTask = tasks.value[0];
+    if (refTask) {
+      const blockNode = await getBlockByID(refTask.blockId || refTask.docId);
+      parentID = blockNode?.parent_id || refTask.docId;
+    } else {
+      showMessage("无法创建任务：视图为空，请先手动在数据库添加一行作为定位参考", 6000, "error");
+      return;
+    }
+  }
+
+  if (!parentID)
+    return;
+
+  try {
+    const res = await appendBlock("markdown", payload.text || "新任务", parentID);
+    if (!res || res.length === 0) {
+      showMessage("思源：创建块失败", 6000, "error");
+      return;
+    }
+    const newBlockID = (res as any)[0]?.doOperations?.[0]?.id || (res as any)[0]?.id;
+    if (!newBlockID) {
+      showMessage("思源：未能获取新块 ID", 6000, "error");
+      return;
+    }
+    // 3. Add this block to the Attribute View
+    console.info(`[dgrrb] adding block ${newBlockID} to AV ${config.value.avID}...`);
+    await addAttributeViewBlocks(config.value.avID, [{ id: newBlockID, isDetached: false }]);
+
+    // 4. Polling for the new row to appear in the AV
+    let found = false;
+    for (let i = 0; i < 10; i++) {
+        await reload();
+        const foundTask = tasks.value.find(t => t.docId === newBlockID || t.blockId === newBlockID);
+        if (foundTask) {
+            found = true;
+            console.info(`[dgrrb] new row ${newBlockID} discovered. Available Cells:`, Object.keys(foundTask.cells || {}));
+            break;
+        }
+        console.info(`[dgrrb] waiting for row ${newBlockID} to appear in AV (${i + 1}/10)...`);
+        await new Promise(r => setTimeout(r, 600));
+    }
+
+    if (!found) {
+        console.warn(`[dgrrb] row ${newBlockID} added but didn't appear in AV within timeout. Attributes might fail to sync.`);
+    }
+
+    // 5. Sync attributes (Dates, Parent)
+    const start = toYmd(payload.start_date);
+    const end = toYmd(new Date(payload.start_date.getTime() + (payload.duration - 1) * 24 * 60 * 60 * 1000));
+
+    console.info(`[dgrrb] triggering attribute sync for row ${newBlockID}. Parent: ${payload.parent || "none"}`);
+    await onGanttUpdate({
+        rowId: newBlockID,
+        start,
+        end,
+        parentId: payload.parent || "",
+    });
+    showMessage("添加子任务成功", 2000, "info");
+
+  } catch (e: any) {
+    console.error(e);
+    showMessage(`创建失败: ${e.message || String(e)}`, 8000, "error");
+  }
+}
+
+async function updateRelation(rowId: string, keyID: string, parentId: string, options?: { reloadAfter?: boolean }) {
+  console.info(`[dgrrb] updateRelation: rowId=${rowId}, targetParentId=${parentId}`);
+  if (!config.value?.avID)
+    return;
+  const cellID = await ensureCellId(rowId, config.value.avID, keyID, 5);
   if (!cellID) {
     showMessage("无法定位 cellID（请先确保该列在数据库里对该行有值/或刷新后重试）", 8000, "error");
     return;
   }
 
-  // 如果该列其实不是 relation（例如你截图里“父任务”是 text），就走普通写入
+  // 如果该列其实不是 relation（例如你截图里“父任务”是 text），导致 keyType!=relation
   const keyType = keyTypeById.value[keyID];
+  console.info(`[dgrrb] updateRelation: keyType=${keyType}`);
+  
+  let success = false;
   if (keyType && keyType !== "relation") {
-    await updateCell(rowId, keyID, parentId, options);
-    return;
+    success = await updateCell(rowId, keyID, parentId, { ...options, reloadAfter: false });
+    if (success) {
+        if (options?.reloadAfter !== false) await reload();
+        return;
+    }
+    console.warn(`[dgrrb] updateRelation: text update failed, falling back to relation tries...`);
   }
 
   const tries = [

@@ -37,11 +37,18 @@ const props = defineProps<{
     progress?: number;
     parentId?: string;
   }) => Promise<void> | void;
+  onCreate: (payload: {
+    text: string;
+    parent?: string;
+    start_date: Date;
+    duration: number;
+  }) => Promise<void> | void;
 }>();
 
 const el = ref<HTMLDivElement>();
 const isApplying = ref(false);
 const lastParsedCount = ref(0);
+const ganttEvents: string[] = [];
 
 const ganttIdByRef = computed(() => {
   const m = new Map<string, string>();
@@ -166,6 +173,8 @@ onMounted(() => {
   gantt.config.grid_width = 360;
   gantt.config.date_format = "%Y-%m-%d %H:%i";
 
+  gantt.config.details_on_create = false; // Fast creation without lightbox
+
   // Enable reordering and tree maintenance
   gantt.config.order_branch = true;
   gantt.config.order_branch_free = true;
@@ -202,10 +211,12 @@ onMounted(() => {
     { name: "start_date", label: "开始", align: "center", width: 80 },
     { name: "end_date", label: "结束", align: "center", width: 80 },
     { name: "progress", label: "进度", align: "center", width: 60, template: (t: any) => `${Math.round((t.progress || 0) * 100)}%` },
+    { name: "add", label: "", width: 44 },
   ];
 
   // open doc on double click
-  gantt.attachEvent("onTaskDblClick", (id: string | number) => {
+  // open doc on double click
+  ganttEvents.push(gantt.attachEvent("onTaskDblClick", (id: string | number) => {
     const task = gantt.getTask(id) as any;
     const rowId = task?.rowId || (ganttIdByRef.value.get(String(id)));
     if (rowId) {
@@ -216,7 +227,7 @@ onMounted(() => {
       });
     }
     return false;
-  });
+  }));
 
   const sync = async (id: string | number) => {
     if (isApplying.value)
@@ -255,15 +266,27 @@ onMounted(() => {
   };
 
   // sync edits/drag/progress/indent
-  gantt.attachEvent("onAfterTaskUpdate", async (id: string) => {
+  // sync edits/drag/progress/indent
+  ganttEvents.push(gantt.attachEvent("onAfterTaskUpdate", async (id: string) => {
     await sync(id);
-  });
-  gantt.attachEvent("onAfterTaskDrag", async (id: string) => {
+  }));
+  ganttEvents.push(gantt.attachEvent("onAfterTaskDrag", async (id: string) => {
     await sync(id);
-  });
-  gantt.attachEvent("onAfterTaskMove", async (id: string) => {
+  }));
+  ganttEvents.push(gantt.attachEvent("onAfterTaskMove", async (id: string) => {
     await sync(id);
-  });
+  }));
+
+  ganttEvents.push(gantt.attachEvent("onAfterTaskAdd", async (id: string, task: any) => {
+    if (isApplying.value)
+      return;
+    await props.onCreate({
+      text: task.text,
+      parent: task.parent && task.parent !== 0 ? String(task.parent) : undefined,
+      start_date: task.start_date,
+      duration: task.duration,
+    });
+  }));
 
   gantt.init(el.value);
   applyTasks();
@@ -277,11 +300,13 @@ watch(
   { deep: true },
 );
 
-onBeforeUnmount(() => {
-  try {
-    gantt.clearAll();
-  } catch {}
-});
+  onBeforeUnmount(() => {
+    try {
+      ganttEvents.forEach(id => gantt.detachEvent(id));
+      ganttEvents.length = 0;
+      gantt.clearAll();
+    } catch {}
+  });
 </script>
 
 <style scoped lang="scss">
