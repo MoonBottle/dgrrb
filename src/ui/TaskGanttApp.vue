@@ -108,6 +108,7 @@
         :tasks="tasks"
         :key-type-by-id="keyTypeById"
         :config="config!"
+        :raw-data="raw"
         :on-update="onGanttUpdate"
         :on-create="onGanttCreate"
         :on-delete="onGanttDelete"

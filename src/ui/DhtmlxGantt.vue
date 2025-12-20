@@ -11,10 +11,12 @@
 import "dhtmlx-gantt/codebase/dhtmlxgantt.css";
 import { gantt } from "dhtmlx-gantt";
 import type { Plugin } from "siyuan";
-import { confirm, Menu, openTab } from "siyuan";
+import { confirm, Menu, openTab, Dialog } from "siyuan";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { createApp } from "vue";
 import type { Task } from "@/domain/task";
 import { extractId } from "@/domain/task";
+import TaskDetailDialog from "./TaskDetailDialog.vue";
 
 const props = defineProps<{
   plugin: Plugin;
@@ -30,6 +32,8 @@ const props = defineProps<{
     parentKeyID?: string;
     progressKeyID?: string;
   };
+  /** raw data from renderAttributeView */
+  rawData?: any;
   onUpdate: (payload: {
     rowId: string;
     start?: string;
@@ -206,7 +210,27 @@ onMounted(() => {
       width: 220,
       template: (t: any) => {
         const hasChild = gantt.hasChild(t.id);
-        return `<span class="${hasChild ? 'dgrrb-gantt-bold' : ''}">${t.text}</span>`;
+        const rowId = t.rowId || (ganttIdByRef.value.get(String(t.id)));
+        const detailBtnId = `dgrrb-detail-btn-${t.id}`;
+        return `
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <span class="${hasChild ? 'dgrrb-gantt-bold' : ''}">${t.text}</span>
+            <button 
+              id="${detailBtnId}"
+              class="dgrrb-gantt-detail-btn" 
+              data-row-id="${rowId}"
+              style="
+                background: none;
+                border: none;
+                cursor: pointer;
+                padding: 2px 4px;
+                opacity: 0.6;
+                font-size: 12px;
+              "
+              title="查看详情"
+            >查看详情</button>
+          </div>
+        `;
       },
     },
     { name: "start_date", label: "开始", align: "center", width: 80 },
@@ -383,12 +407,161 @@ onMounted(() => {
 
   gantt.init(el.value);
   applyTasks();
+  
+  // 绑定详情按钮点击事件
+  bindDetailButtons();
 });
+
+// 绑定详情按钮点击事件
+function bindDetailButtons() {
+  if (!el.value) return;
+  
+  // 移除旧的事件监听器
+  const oldHandler = (el.value as any)._detailClickHandler;
+  if (oldHandler) {
+    el.value.removeEventListener("click", oldHandler);
+  }
+  
+  // 添加新的事件监听器
+  const handleDetailClick = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const btn = target.closest(".dgrrb-gantt-detail-btn");
+    if (!btn) return;
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const rowId = btn.getAttribute("data-row-id");
+    if (!rowId) {
+      console.warn("[dgrrb] Detail button clicked but no rowId found");
+      return;
+    }
+    
+    openDetailDialog(rowId);
+  };
+  
+  el.value.addEventListener("click", handleDetailClick);
+  (el.value as any)._detailClickHandler = handleDetailClick;
+}
+
+// 打开详情对话框
+function openDetailDialog(rowId: string) {
+  if (!props.rawData || !props.config?.avID) {
+    console.warn("[dgrrb] Cannot open detail dialog: missing rawData or avID");
+    return;
+  }
+
+  console.info("[dgrrb] Opening detail dialog for rowId:", rowId);
+  
+  let vueApp: any = null;
+  
+  const dialog = new Dialog({
+    title: "任务详情",
+    content: '<div id="dgrrb-detail-container"></div>',
+    width: "600px",
+    height: "80vh",
+    destroyCallback: () => {
+      console.info("[dgrrb] Dialog destroyed, unmounting Vue app");
+      if (vueApp) {
+        vueApp.unmount();
+      }
+    },
+  });
+
+  // 等待 Dialog 渲染完成后再挂载 Vue 组件
+  setTimeout(() => {
+    // 查找对话框内容区域 - 尝试多种选择器
+    let dialogContent = dialog.element.querySelector(".b3-dialog__content");
+    if (!dialogContent) {
+      dialogContent = dialog.element.querySelector('[class*="dialog"]');
+    }
+    if (!dialogContent) {
+      // 查找包含 id="dgrrb-detail-container" 的元素
+      dialogContent = dialog.element.querySelector("#dgrrb-detail-container")?.parentElement || null;
+    }
+    
+    if (!dialogContent) {
+      console.error("[dgrrb] Cannot find dialog content area");
+      console.error("[dgrrb] Dialog element:", dialog.element);
+      console.error("[dgrrb] Dialog element children:", Array.from(dialog.element.children).map(c => ({
+        tag: c.tagName,
+        class: c.className,
+        id: c.id,
+      })));
+      return;
+    }
+
+    // 查找或创建容器
+    let container = dialogContent.querySelector("#dgrrb-detail-container") as HTMLElement;
+    if (!container) {
+      // 如果找不到，创建一个新的
+      container = document.createElement("div");
+      container.id = "dgrrb-detail-container";
+      container.className = "dgrrb-task-detail-dialog-container";
+      container.style.cssText = "width: 100%; height: 100%; overflow: hidden;";
+      
+      // 清空内容区域并添加容器
+      dialogContent.innerHTML = "";
+      dialogContent.appendChild(container);
+    } else {
+      // 如果找到了，清空它
+      container.innerHTML = "";
+      container.className = "dgrrb-task-detail-dialog-container";
+      container.style.cssText = "width: 100%; height: 100%; overflow: hidden;";
+    }
+
+    console.info("[dgrrb] Creating Vue app for TaskDetailDialog, container:", container);
+    
+    // 创建 Vue 应用并挂载
+    vueApp = createApp(TaskDetailDialog, {
+      rowId,
+      avID: props.config.avID,
+      rawData: props.rawData,
+      keyTypeById: props.keyTypeById,
+      onSaved: () => {
+        // 保存成功后，触发父组件的更新
+        if (props.onUpdate) {
+          // 可以触发重新加载，或者只更新特定字段
+          // 这里我们让父组件处理刷新
+          console.info("[dgrrb] Detail dialog saved, parent should reload");
+        }
+        if (vueApp) {
+          vueApp.unmount();
+        }
+        dialog.destroy();
+      },
+      onClose: () => {
+        if (vueApp) {
+          vueApp.unmount();
+        }
+        dialog.destroy();
+      },
+    });
+
+    vueApp.mount(container);
+    console.info("[dgrrb] Vue app mounted successfully, container children:", container.children.length);
+    
+    // 检查挂载后的内容
+    setTimeout(() => {
+      const mountedContent = container.querySelector(".dgrrb-task-detail-dialog");
+      console.info("[dgrrb] Mounted content check:", {
+        hasContainer: !!container,
+        hasMountedContent: !!mountedContent,
+        containerChildren: container.children.length,
+        containerHTML: container.innerHTML.substring(0, 500),
+      });
+    }, 100);
+  }, 100);
+}
 
 watch(
   () => props.tasks,
   () => {
     applyTasks();
+    // 在任务更新后重新绑定详情按钮事件
+    setTimeout(() => {
+      bindDetailButtons();
+    }, 100);
   },
   { deep: true },
 );
