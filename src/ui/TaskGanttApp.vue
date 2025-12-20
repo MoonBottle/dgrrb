@@ -336,41 +336,20 @@ function buildValue(keyType: string | undefined, input: any) {
  * itemID 必须是 row.id，而不是 block.id
  */
 function resolveRowId(rowId: string): string {
-  // 首先尝试直接匹配 docId（row.id）
+  // 通过 docId 查找
   const taskByDocId = tasks.value.find(t => t.docId === rowId);
   if (taskByDocId) {
-    return taskByDocId.docId; // docId 就是 row.id
+    return taskByDocId.docId;
   }
 
-  // 如果没找到，尝试通过 blockId 查找对应的 docId
+  // 通过 blockId 查找对应的 docId
   const taskByBlockId = tasks.value.find(t => t.blockId === rowId);
   if (taskByBlockId) {
-    return taskByBlockId.docId; // 返回对应的 row.id
+    return taskByBlockId.docId;
   }
 
-  // 如果都没找到，尝试从 raw.value 中查找
-  if (raw.value) {
-    const view = raw.value?.view ?? raw.value?.data?.view;
-    const rows = view?.rows ?? view?.data?.rows ?? [];
-    for (const row of rows) {
-      const rowIdFromRow = row?.id ?? row?.rowID ?? row?.rowId;
-      if (rowIdFromRow === rowId) {
-        return String(rowIdFromRow);
-      }
-      // 检查 block.id
-      if (Array.isArray(row?.cells)) {
-        for (const cell of row.cells) {
-          if (cell?.value?.block?.id === rowId || cell?.value?.blockID === rowId) {
-            return String(row?.id ?? row?.rowID ?? row?.rowId);
-          }
-        }
-      }
-    }
-  }
-
-  // 如果都找不到，返回原始值（可能是新创建的行，还未刷新）
-  console.warn(`[dgrrb] resolveRowId: cannot resolve rowId ${rowId}, using as-is`);
-  return rowId;
+  // 找不到就报错
+  throw new Error(`无法解析 rowId: ${rowId}，未在 tasks 中找到对应的行`);
 }
 
 async function batchUpdateCells(
@@ -381,29 +360,28 @@ async function batchUpdateCells(
   if (!config.value?.avID || updates.length === 0)
     return false;
 
-  // 将 rowId 映射到真正的 row.id（itemID 必须是 row.id，不是 block.id）
-  const actualRowId = resolveRowId(rowId);
-  console.info(`[dgrrb] batchUpdateCells: resolved rowId ${rowId} -> ${actualRowId}`);
-
-  // 构建批量请求的 values 数组
-  const values = updates.map(({ keyID, value, keyType }) => {
-    const actualKeyType = keyType || keyTypeById.value[keyID];
-    // 对于关系类型，使用第一种格式（如果失败会在外层重试其他格式）
-    // 对于其他类型，使用 buildValue 构建
-    const finalValue = actualKeyType === "relation" && value
-      ? { relation: [{ content: String(value) }] }
-      : buildValue(actualKeyType, value);
-
-    return {
-      keyID,
-      itemID: actualRowId, // itemID 必须是 row.id (docId)，不是 block.id
-      value: finalValue,
-    };
-  });
-
-  console.info(`[dgrrb] batchUpdateCells: row=${rowId}->${actualRowId}, updates=${updates.length}`, values);
-
   try {
+    // 将 rowId 映射到真正的 row.id（itemID 必须是 row.id，不是 block.id）
+    const actualRowId = resolveRowId(rowId);
+    console.info(`[dgrrb] batchUpdateCells: resolved rowId ${rowId} -> ${actualRowId}`);
+
+    // 构建批量请求的 values 数组
+    const values = updates.map(({ keyID, value, keyType }) => {
+      const actualKeyType = keyType || keyTypeById.value[keyID];
+      // 对于关系类型，使用第一种格式（如果失败会在外层重试其他格式）
+      // 对于其他类型，使用 buildValue 构建
+      const finalValue = actualKeyType === "relation" && value
+        ? { relation: [{ content: String(value) }] }
+        : buildValue(actualKeyType, value);
+
+      return {
+        keyID,
+        itemID: actualRowId, // itemID 必须是 row.id (docId)，不是 block.id
+        value: finalValue,
+      };
+    });
+
+    console.info(`[dgrrb] batchUpdateCells: row=${rowId}->${actualRowId}, updates=${updates.length}`, values);
     const resp = await batchSetAttributeViewBlockAttrs(config.value.avID, values);
 
     if (resp && resp.code !== 0) {
