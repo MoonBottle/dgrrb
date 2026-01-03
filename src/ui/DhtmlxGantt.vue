@@ -36,7 +36,7 @@ const props = defineProps<{
   /** raw data from renderAttributeView */
   rawData?: any;
   onUpdate: (payload: {
-    rowId: string;
+    itemID: string;
     start?: string;
     end?: string;
     progress?: number;
@@ -48,8 +48,8 @@ const props = defineProps<{
     start_date: Date;
     duration: number;
   }) => Promise<string> | string;
-  onUpdateFields?: (rowId: string, updates: Record<string, any>) => Promise<void> | void;
-  onDelete: (rowId: string) => Promise<void> | void;
+  onUpdateFields?: (itemID: string, updates: Record<string, any>) => Promise<void> | void;
+  onDelete: (itemID: string) => Promise<void> | void;
   /** callback when detail dialog saved */
   onDetailSaved?: () => Promise<void> | void;
 }>();
@@ -283,7 +283,7 @@ onMounted(() => {
     }
 
     const payload = {
-      rowId,
+      itemID: rowId,
       start,
       end,
       progress: task.progress !== undefined ? Math.round(task.progress * 100) : undefined,
@@ -633,15 +633,15 @@ function openCreateTaskDialog(parentTaskId?: string) {
         const rowId = await props.onCreate(payload);
         return rowId;
       },
-      onUpdate: async (rowId, updates) => {
-        console.info("[dgrrb] TaskCreateDialog onUpdate called", rowId, updates);
+      onUpdate: async (itemID, updates) => {
+        console.info("[dgrrb] TaskCreateDialog onUpdate called", itemID, updates);
         if (props.onUpdateFields) {
-          await props.onUpdateFields(rowId, updates);
+          await props.onUpdateFields(itemID, updates);
         } else {
           // 如果没有 onUpdateFields，使用 onUpdate 来更新字段
           // 需要将 updates 转换为 onUpdate 的格式
           const updatePayload: any = {
-            rowId,
+            itemID,
           };
           
           // 提取开始日期、结束日期、进度、父任务等

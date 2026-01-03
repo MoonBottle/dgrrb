@@ -148,7 +148,7 @@ const props = defineProps<{
   config: TaskAvConfig;
   parentTaskId?: string;
   onCreate: (payload: { text: string; parent?: string; start_date: Date; duration: number }) => Promise<string>;
-  onUpdate: (rowId: string, updates: Record<string, any>) => Promise<void>;
+  onUpdate: (itemID: string, updates: Record<string, any>) => Promise<void>;
   onClose?: () => void;
 }>();
 
@@ -312,23 +312,23 @@ async function handleCreate() {
       duration,
     });
     
-    const rowId = await props.onCreate({
+    const itemID = await props.onCreate({
       text: taskName,
       parent: parentId,
       start_date: startDate,
       duration,
     });
     
-    if (!rowId) {
+    if (!itemID) {
       showMessage("创建任务失败：未返回任务 ID", 5000, "error");
       creating.value = false;
       return;
     }
     
-    console.info("[dgrrb] TaskCreateDialog: task created, rowId:", rowId);
+    console.info("[dgrrb] TaskCreateDialog: task created, itemID:", itemID);
     
     // 等待一下，确保任务已创建
-    await new Promise(r => setTimeout(r, 500));
+    // await new Promise(r => setTimeout(r, 500));
     
     // 构建其他字段的更新
     const updates: Record<string, any> = {};
@@ -359,7 +359,7 @@ async function handleCreate() {
     // 如果有其他字段需要更新，调用 onUpdate
     if (Object.keys(updates).length > 0) {
       console.info("[dgrrb] TaskCreateDialog: updating additional fields", updates);
-      await props.onUpdate(rowId, updates);
+      await props.onUpdate(itemID, updates);
     }
     
     console.info("[dgrrb] TaskCreateDialog: task created successfully");

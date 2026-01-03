@@ -285,18 +285,18 @@ async function reload() {
   }
 }
 
-async function ensureCellId(rowId: string, avID: string, keyID: string, retry = 3): Promise<string | undefined> {
+async function ensureCellId(itemID: string, avID: string, keyID: string, retry = 3): Promise<string | undefined> {
   // first: from parsed tasks cache
-  const t = tasks.value.find(x => x.docId === rowId);
+  const t = tasks.value.find(x => x.docId === itemID);
   const cached = t?.cells?.[keyID]?.cellID;
   if (cached)
     return cached;
   
-  console.info(`[dgrrb] ensureCellId: cache miss for row ${rowId} key ${keyID}. Task cells keys: ${Object.keys(t?.cells || {}).join(",")}`);
+  console.info(`[dgrrb] ensureCellId: cache miss for itemID ${itemID} key ${keyID}. Task cells keys: ${Object.keys(t?.cells || {}).join(",")}`);
 
   // fallback: query by block id (docId)
   for (let i = 0; i < retry; i++) {
-    const res = await getAttributeViewKeysOfBlock(rowId);
+    const res = await getAttributeViewKeysOfBlock(itemID);
     const list = res?.data ?? res;
     const listArr = toArray(list);
     const found = listArr.find((it: any) => it?.avID === avID);
@@ -313,7 +313,7 @@ async function ensureCellId(rowId: string, avID: string, keyID: string, retry = 
     }
 
     if (retry > 1 && i < retry - 1) {
-      console.info(`[dgrrb] cellID for row ${rowId} key ${keyID} not found, retrying (${i + 1}/${retry})...`);
+      console.info(`[dgrrb] cellID for itemID ${itemID} key ${keyID} not found, retrying (${i + 1}/${retry})...`);
       await new Promise(r => setTimeout(r, 500));
     }
   }
@@ -321,16 +321,8 @@ async function ensureCellId(rowId: string, avID: string, keyID: string, retry = 
 }
 
 
-/**
- * 将 rowId（可能是 docId 或 blockId）映射到真正的 row.id（docId）
- * itemID 必须是 row.id，而不是 block.id
- */
-function resolveRowId(rowId: string): string {
-  return rowId;
-}
-
 async function batchUpdateCells(
-  rowId: string,
+  itemID: string,
   updates: Array<{ keyID: string; value: any; keyType?: string }>,
   options?: { reloadAfter?: boolean }
 ): Promise<boolean> {
@@ -338,10 +330,6 @@ async function batchUpdateCells(
     return false;
 
   try {
-    // 将 rowId 映射到真正的 row.id（itemID 必须是 row.id，不是 block.id）
-    const actualRowId = resolveRowId(rowId);
-    console.info(`[dgrrb] batchUpdateCells: resolved rowId ${rowId} -> ${actualRowId}`);
-
     // 构建批量请求的 values 数组
     const values = updates.map(({ keyID, value, keyType }) => {
       const actualKeyType = keyType || keyTypeById.value[keyID];
@@ -353,12 +341,12 @@ async function batchUpdateCells(
 
       return {
         keyID,
-        itemID: actualRowId, // itemID 必须是 row.id (docId)，不是 block.id
+        itemID, // itemID 必须是 row.id (docId)，不是 block.id
         value: finalValue,
       };
     });
 
-    console.info(`[dgrrb] batchUpdateCells: row=${rowId}->${actualRowId}, updates=${updates.length}`, values);
+    console.info(`[dgrrb] batchUpdateCells: itemID=${itemID}, updates=${updates.length}`, values);
     const resp = await batchSetAttributeViewBlockAttrs(config.value.avID, values);
 
     if (resp && resp.code !== 0) {
@@ -413,21 +401,21 @@ async function batchUpdateCells(
   }
 }
 
-async function updateCell(rowId: string, keyID: string, input: any, options?: { reloadAfter?: boolean }) {
+async function updateCell(itemID: string, keyID: string, input: any, options?: { reloadAfter?: boolean }) {
   if (!config.value?.avID)
     return;
-  const cellID = await ensureCellId(rowId, config.value.avID, keyID, 5);
+  const cellID = await ensureCellId(itemID, config.value.avID, keyID, 5);
   if (!cellID) {
     showMessage("无法定位 cellID（请先确保该列在数据库里对该行有值/或刷新后重试）", 8000, "error");
     return;
   }
   const keyType = keyTypeById.value[keyID];
-  console.info(`[dgrrb] updateCell: row=${rowId}, key=${keyID}, type=${keyType}, input=${input}, cellID=${cellID}`);
+  console.info(`[dgrrb] updateCell: itemID=${itemID}, key=${keyID}, type=${keyType}, input=${input}, cellID=${cellID}`);
   // use requestRaw to see actual error from SiYuan
   const resp = await requestRaw("/api/av/setAttributeViewBlockAttr", {
     avID: config.value.avID,
     keyID,
-    rowID: rowId,
+    rowID: itemID,
     cellID,
     value: buildValue(keyType, input),
   });
@@ -443,7 +431,7 @@ async function updateCell(rowId: string, keyID: string, input: any, options?: { 
   return true;
 }
 
-async function onGanttUpdate(payload: { rowId: string; start?: string; end?: string; progress?: number; parentId?: string }) {
+async function onGanttUpdate(payload: { itemID: string; start?: string; end?: string; progress?: number; parentId?: string }) {
   if (!config.value?.avID)
     return;
 
@@ -485,24 +473,20 @@ async function onGanttUpdate(payload: { rowId: string; start?: string; end?: str
 
   // 使用批量接口一次性更新所有字段
   if (updates.length > 0) {
-    await batchUpdateCells(payload.rowId, updates, { reloadAfter: true });
+    await batchUpdateCells(payload.itemID, updates, { reloadAfter: true });
   } else {
     await reload();
   }
 }
 
-async function onGanttDelete(rowId: string) {
-  console.info("[dgrrb] onGanttDelete starting:", rowId);
+async function onGanttDelete(itemID: string) {
+  console.info("[dgrrb] onGanttDelete starting:", itemID);
   if (!config.value?.avID)
     return;
 
   try {
-    // 解析 rowId 为真正的 row.id (docId)
-    const actualRowId = resolveRowId(rowId);
-    console.info(`[dgrrb] onGanttDelete: resolved rowId ${rowId} -> ${actualRowId}`);
-
     // 从数据库中删除该行
-    await removeAttributeViewBlocks(config.value.avID, [actualRowId]);
+    await removeAttributeViewBlocks(config.value.avID, [itemID]);
 
     // 刷新数据
     await reload();
@@ -591,9 +575,9 @@ async function onGanttCreate(payload: { text: string; parent?: string; start_dat
     const start = toYmd(payload.start_date);
     const end = toYmd(new Date(payload.start_date.getTime() + (payload.duration - 1) * 24 * 60 * 60 * 1000));
 
-    console.info(`[dgrrb] triggering attribute sync for row ${itemID}. Parent: ${payload.parent || "none"}`);
+    console.info(`[dgrrb] triggering attribute sync for itemID ${itemID}. Parent: ${payload.parent || "none"}`);
     await onGanttUpdate({
-        rowId: itemID,
+        itemID: itemID,
         start,
         end,
         parentId: payload.parent || "",
@@ -608,18 +592,17 @@ async function onGanttCreate(payload: { text: string; parent?: string; start_dat
   }
 }
 
-async function onUpdateFields(rowId: string, updates: Record<string, any>) {
-  console.info("[dgrrb] onUpdateFields called", rowId, updates);
+async function onUpdateFields(itemID: string, updates: Record<string, any>) {
+  console.info("[dgrrb] onUpdateFields called", itemID, updates);
   if (!config.value?.avID) {
     return;
   }
 
   try {
-    const actualRowId = resolveRowId(rowId);
     // 构建批量请求的 values 数组
     const values = Object.entries(updates).map(([keyID, value]) => ({
       keyID,
-      itemID: actualRowId,
+      itemID,
       value,
     }));
 
@@ -627,7 +610,7 @@ async function onUpdateFields(rowId: string, updates: Record<string, any>) {
       return;
     }
 
-    console.info(`[dgrrb] onUpdateFields: updating ${values.length} fields for row ${rowId}`);
+    console.info(`[dgrrb] onUpdateFields: updating ${values.length} fields for itemID ${itemID}`);
     const resp = await batchSetAttributeViewBlockAttrs(config.value.avID, values);
 
     if (resp && resp.code !== 0) {
@@ -645,23 +628,23 @@ async function onUpdateFields(rowId: string, updates: Record<string, any>) {
   }
 }
 
-async function updateRelation(rowId: string, keyID: string, parentId: string, options?: { reloadAfter?: boolean }) {
-  console.info(`[dgrrb] updateRelation: rowId=${rowId}, targetParentId=${parentId}`);
+async function updateRelation(itemID: string, keyID: string, parentId: string, options?: { reloadAfter?: boolean }) {
+  console.info(`[dgrrb] updateRelation: itemID=${itemID}, targetParentId=${parentId}`);
   if (!config.value?.avID)
     return;
-  const cellID = await ensureCellId(rowId, config.value.avID, keyID, 5);
+  const cellID = await ensureCellId(itemID, config.value.avID, keyID, 5);
   if (!cellID) {
     showMessage("无法定位 cellID（请先确保该列在数据库里对该行有值/或刷新后重试）", 8000, "error");
     return;
   }
 
-  // 如果该列其实不是 relation（例如你截图里“父任务”是 text），导致 keyType!=relation
+  // 如果该列其实不是 relation（例如你截图里"父任务"是 text），导致 keyType!=relation
   const keyType = keyTypeById.value[keyID];
   console.info(`[dgrrb] updateRelation: keyType=${keyType}`);
   
   let success = false;
   if (keyType && keyType !== "relation") {
-    success = await updateCell(rowId, keyID, parentId, { ...options, reloadAfter: false });
+    success = await updateCell(itemID, keyID, parentId, { ...options, reloadAfter: false });
     if (success) {
         if (options?.reloadAfter !== false) await reload();
         return;
@@ -678,7 +661,7 @@ async function updateRelation(rowId: string, keyID: string, parentId: string, op
     const resp = await requestRaw("/api/av/setAttributeViewBlockAttr", {
       avID: config.value.avID,
       keyID,
-      rowID: rowId,
+      rowID: itemID,
       cellID,
       value,
     });
