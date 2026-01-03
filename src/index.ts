@@ -142,6 +142,7 @@ export default class PluginSample extends Plugin {
           statusKeyID?: HTMLSelectElement;
           parentKeyID?: HTMLSelectElement;
           progressKeyID?: HTMLSelectElement;
+          typeKeyID?: HTMLSelectElement;
         } | undefined;
 
         if (!els?.avID) {
@@ -157,6 +158,7 @@ export default class PluginSample extends Plugin {
           statusKeyID: els.statusKeyID?.value?.trim() || "",
           parentKeyID: els.parentKeyID?.value?.trim() || "",
           progressKeyID: els.progressKeyID?.value?.trim() || "",
+          typeKeyID: els.typeKeyID?.value?.trim() || "",
         };
 
         if (!payload.avID) {
@@ -407,6 +409,7 @@ export default class PluginSample extends Plugin {
           if (els.statusKeyID) els.statusKeyID.value = "";
           if (els.parentKeyID) els.parentKeyID.value = "";
           if (els.progressKeyID) els.progressKeyID.value = "";
+          if (els.typeKeyID) els.typeKeyID.value = "";
         }
       }, 100);
     }
@@ -433,6 +436,7 @@ export default class PluginSample extends Plugin {
         if (els.statusKeyID) els.statusKeyID.value = db.config.statusKeyID || "";
         if (els.parentKeyID) els.parentKeyID.value = db.config.parentKeyID || "";
         if (els.progressKeyID) els.progressKeyID.value = db.config.progressKeyID || "";
+        if (els.typeKeyID) els.typeKeyID.value = db.config.typeKeyID || "";
       }
     }, 100);
   }
@@ -740,6 +744,11 @@ export default class PluginSample extends Plugin {
     progressKeyID.append(option("", "（不使用）"));
     progressRow.append(label("进度 number keyID"), progressKeyID);
 
+    const typeRow = row();
+    const typeKeyID = select();
+    typeKeyID.append(option("", "（不使用）"));
+    typeRow.append(label("类型 keyID"), typeKeyID);
+
     const setOptions = (sel: HTMLSelectElement, list: Array<{ value: string; text: string }>, first?: { value: string; text: string }) => {
       sel.innerHTML = "";
       if (first)
@@ -766,6 +775,7 @@ export default class PluginSample extends Plugin {
           if (statusKeyID) statusKeyID.value = db.config.statusKeyID || "";
           if (parentKeyID) parentKeyID.value = db.config.parentKeyID || "";
           if (progressKeyID) progressKeyID.value = db.config.progressKeyID || "";
+          if (typeKeyID) typeKeyID.value = db.config.typeKeyID || "";
         }
       }
     };
@@ -789,6 +799,7 @@ export default class PluginSample extends Plugin {
         setOptions(statusKeyID, keyList, { value: "", text: "（不使用）" });
         setOptions(parentKeyID, keyList, { value: "", text: "（不使用）" });
         setOptions(progressKeyID, keyList, { value: "", text: "（不使用）" });
+        setOptions(typeKeyID, keyList, { value: "", text: "（不使用）" });
 
         await fillFromConfig();
         showMessage("已加载 AV 视图与列", 3000, "info");
@@ -897,6 +908,7 @@ export default class PluginSample extends Plugin {
       statusKeyID,
       parentKeyID,
       progressKeyID,
+      typeKeyID,
     };
 
     wrap.append(
@@ -908,6 +920,7 @@ export default class PluginSample extends Plugin {
       statusRow,
       parentRow,
       progressRow,
+      typeRow,
     );
 
     // init default values
