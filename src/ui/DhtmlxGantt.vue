@@ -1,8 +1,5 @@
 <template>
   <div class="dgrrb-gantt-wrap">
-    <div class="dgrrb-gantt-debug" v-if="tasks.length">
-      GanttTasks: {{ lastParsedCount }} / {{ tasks.length }}
-    </div>
     <div ref="el" class="dgrrb-gantt" />
   </div>
 </template>
@@ -63,7 +60,6 @@ const props = defineProps<{
 
 const el = ref<HTMLDivElement>();
 const isApplying = ref(false);
-const lastParsedCount = ref(0);
 const ganttEvents: string[] = [];
 
 const ganttIdByRef = computed(() => {
@@ -162,9 +158,7 @@ function applyTasks() {
 
     gantt.clearAll();
     (gantt as any).parse({ data, tasks: data });
-    lastParsedCount.value = (gantt as any).getTaskCount?.() ?? data.length;
     gantt.render();
-    console.info("[dgrrb] gantt parsed count:", lastParsedCount.value);
   } catch (err) {
     console.error("[dgrrb] gantt apply error:", err);
   } finally {
@@ -833,19 +827,6 @@ watch(
   border-radius: var(--b3-border-radius);
   overflow: hidden;
   position: relative;
-}
-
-.dgrrb-gantt-debug {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 2;
-  font-size: 12px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--b3-theme-surface);
-  border: 1px solid var(--b3-border-color);
-  opacity: 0.85;
 }
 
 .dgrrb-gantt {
