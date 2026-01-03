@@ -135,6 +135,7 @@ import { ref, onMounted } from "vue";
 import { showMessage } from "siyuan";
 import { batchSetAttributeViewBlockAttrs } from "@/api";
 import { valueToText } from "@/domain/task";
+import { buildValue } from "@/utils";
 
 const props = defineProps<{
   rowId: string;
@@ -156,51 +157,6 @@ const fields = ref<Array<{
 const fieldValues = ref<Record<string, any>>({});
 const saving = ref(false);
 
-// 构建字段值的函数（从 TaskGanttApp 复制）
-function buildValue(keyType: string | undefined, input: any) {
-  switch (keyType) {
-    case "block":
-      return { block: { content: String(input ?? "") } };
-    case "number":
-      return {
-        number: {
-          content: Number(input) || 0,
-          isNotEmpty: input !== undefined && input !== null && input !== "",
-          format: "",
-          formattedContent: "",
-        },
-      };
-    case "select":
-      return { mSelect: input ? [{ content: String(input) }] : [] };
-    case "mSelect":
-      // 多选：input 可能是数组或逗号分隔的字符串
-      if (Array.isArray(input)) {
-        return { mSelect: input.map((v: any) => ({ content: String(v) })) };
-      } else if (typeof input === "string" && input.includes(",")) {
-        return { mSelect: input.split(",").map((v: string) => ({ content: v.trim() })) };
-      } else if (input) {
-        return { mSelect: [{ content: String(input) }] };
-      }
-      return { mSelect: [] };
-    case "date":
-      return {
-        date: {
-          content: input ? new Date(`${String(input)}T00:00:00`).getTime() : 0,
-          isNotEmpty: input !== undefined && input !== null && input !== "",
-          hasEndDate: false,
-          isNotTime: true,
-          content2: 0,
-          isNotEmpty2: false,
-          formattedContent: "",
-        },
-      };
-    case "relation":
-      return { relation: [{ content: String(input) }] };
-    case "text":
-    default:
-      return { text: { content: String(input ?? "") } };
-  }
-}
 
 // 从 rawData 中提取行数据
 function findRowInRawData(rowId: string): any {

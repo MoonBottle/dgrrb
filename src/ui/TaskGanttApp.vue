@@ -164,22 +164,13 @@ import {
   setAttributeViewBlockAttr,
 } from "@/api";
 import { parseRenderAttributeViewToTasks, type Task, type TaskAvConfig } from "@/domain/task";
+import { buildValue } from "@/utils";
 import DhtmlxGantt from "@/ui/DhtmlxGantt.vue";
 
 const props = defineProps<{
   plugin: Plugin;
   dbId?: string;
 }>();
-
-type TaskAvConfig = {
-  avID: string;
-  viewID?: string;
-  startKeyID?: string;
-  endKeyID?: string;
-  statusKeyID?: string;
-  parentKeyID?: string;
-  progressKeyID?: string;
-};
 
 const loading = ref(false);
 const error = ref<string>("");
@@ -328,36 +319,6 @@ async function ensureCellId(rowId: string, avID: string, keyID: string, retry = 
   return undefined;
 }
 
-function buildValue(keyType: string | undefined, input: any) {
-  switch (keyType) {
-    case "block":
-      return { block: { content: String(input ?? "") } };
-    case "number":
-      return { number: { content: Number(input) } };
-    case "mSelect":
-    case "select":
-      return { mSelect: input ? [{ content: String(input) }] : [] };
-    case "date":
-      // 对齐 kernel 返回结构：date.content 是时间戳(ms)，并且 isNotTime=true 表示纯日期
-      // 注意：这里用本地时区的 00:00:00
-      return {
-        date: {
-          content: input ? new Date(`${String(input)}T00:00:00`).getTime() : 0,
-          hasEndDate: false,
-          isNotTime: true,
-          content2: 0,
-          isNotEmpty2: false,
-          formattedContent: "",
-        },
-      };
-    case "relation":
-      // 关系列的 value 结构在不同版本可能不同；这里不在该函数里直接处理
-      return { relation: [{ content: String(input) }] };
-    case "text":
-    default:
-      return { text: { content: String(input ?? "") } };
-  }
-}
 
 /**
  * 将 rowId（可能是 docId 或 blockId）映射到真正的 row.id（docId）
