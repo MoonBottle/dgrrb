@@ -48,6 +48,13 @@ const props = defineProps<{
     start_date: Date;
     duration: number;
   }) => Promise<string> | string;
+  onCreateOutcome?: (payload: {
+    text: string;
+    parent?: string;
+    start_date: Date;
+    duration: number;
+    fields?: Record<string, any>;
+  }) => Promise<string> | string;
   onUpdateFields?: (itemID: string, updates: Record<string, any>) => Promise<void> | void;
   onDelete: (itemID: string) => Promise<void> | void;
   /** callback when detail dialog saved */
@@ -376,6 +383,14 @@ onMounted(() => {
       });
 
       menu.addItem({
+        icon: "iconPlus",
+        label: "添加成果",
+        click: () => {
+          openCreateOutcomeDialog(String(taskId));
+        },
+      });
+
+      menu.addItem({
         icon: "iconTrashcan",
         label: "删除任务",
         click: async () => {
@@ -688,6 +703,105 @@ function openCreateTaskDialog(parentTaskId?: string) {
 
     vueApp.mount(container);
     console.info("[dgrrb] Vue app mounted successfully for TaskCreateDialog");
+  }, 100);
+}
+
+// 打开创建成果对话框
+function openCreateOutcomeDialog(parentTaskId?: string) {
+  if (!props.rawData || !props.config?.avID) {
+    console.warn("[dgrrb] Cannot open create outcome dialog: missing rawData or avID");
+    return;
+  }
+
+  console.info("[dgrrb] Opening create outcome dialog, parentTaskId:", parentTaskId);
+  
+  let vueApp: any = null;
+  
+  const dialog = new Dialog({
+    title: "创建成果",
+    content: '<div id="dgrrb-create-outcome-container"></div>',
+    width: "600px",
+    height: "80vh",
+    destroyCallback: () => {
+      console.info("[dgrrb] Dialog destroyed, unmounting Vue app");
+      if (vueApp) {
+        vueApp.unmount();
+      }
+    },
+  });
+
+  // 等待 Dialog 渲染完成后再挂载 Vue 组件
+  setTimeout(() => {
+    // 查找对话框内容区域
+    let dialogContent = dialog.element.querySelector(".b3-dialog__content");
+    if (!dialogContent) {
+      dialogContent = dialog.element.querySelector('[class*="dialog"]');
+    }
+    if (!dialogContent) {
+      dialogContent = dialog.element.querySelector("#dgrrb-create-outcome-container")?.parentElement || null;
+    }
+    
+    if (!dialogContent) {
+      console.error("[dgrrb] Cannot find dialog content area");
+      return;
+    }
+
+    // 查找或创建容器
+    let container = dialogContent.querySelector("#dgrrb-create-outcome-container") as HTMLElement;
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "dgrrb-create-outcome-container";
+      container.className = "dgrrb-task-create-dialog-container";
+      container.style.cssText = "width: 100%; height: 100%; overflow: hidden;";
+      dialogContent.innerHTML = "";
+      dialogContent.appendChild(container);
+    } else {
+      container.innerHTML = "";
+      container.className = "dgrrb-task-create-dialog-container";
+      container.style.cssText = "width: 100%; height: 100%; overflow: hidden;";
+    }
+
+    console.info("[dgrrb] Creating Vue app for TaskCreateDialog (outcome), container:", container);
+    
+    // 解析父任务 ID（如果是甘特图 ID，需要转换为 rowId）
+    let parentRowId: string | undefined = undefined;
+    if (parentTaskId) {
+      parentRowId = ganttIdByRef.value.get(parentTaskId) || parentTaskId;
+    }
+    
+    // 创建 Vue 应用并挂载
+    vueApp = createApp(TaskCreateDialog, {
+      avID: props.config.avID,
+      rawData: props.rawData,
+      keyTypeById: props.keyTypeById,
+      config: props.config,
+      parentTaskId: parentRowId,
+      defaultType: "成果",
+      enableDateTime: true,
+      onCreate: async (payload) => {
+        console.info("[dgrrb] TaskCreateDialog onCreate called (outcome)", payload);
+        if (props.onCreateOutcome) {
+          const itemID = await props.onCreateOutcome(payload);
+          return itemID;
+        }
+        return "";
+      },
+      onUpdate: async (itemID, updates) => {
+        console.info("[dgrrb] TaskCreateDialog onUpdate called (outcome)", itemID, updates);
+        if (props.onUpdateFields) {
+          await props.onUpdateFields(itemID, updates);
+        }
+      },
+      onClose: () => {
+        if (vueApp) {
+          vueApp.unmount();
+        }
+        dialog.destroy();
+      },
+    });
+
+    vueApp.mount(container);
+    console.info("[dgrrb] Vue app mounted successfully for TaskCreateDialog (outcome)");
   }, 100);
 }
 

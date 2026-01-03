@@ -562,6 +562,14 @@ export async function addAttributeViewBlocks(
   return request("/api/av/addAttributeViewBlocks", payload);
 }
 
+export async function appendAttributeViewDetachedBlocksWithValues(
+  avID: AvId,
+  blocksValues: Array<Array<{ keyID: AvKeyId; [key: string]: any }>>
+) {
+  const payload = { avID, blocksValues };
+  return request("/api/av/appendAttributeViewDetachedBlocksWithValues", payload);
+}
+
 export async function removeAttributeViewBlocks(avID: AvId, srcIDs: BlockId[]) {
   const payload = { avID, srcIDs };
   return request("/api/av/removeAttributeViewBlocks", payload);

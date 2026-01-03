@@ -111,6 +111,7 @@
         :raw-data="raw"
         :on-update="onGanttUpdate"
         :on-create="onGanttCreate"
+        :on-create-outcome="onGanttCreateOutcome"
         :on-delete="onGanttDelete"
         :on-detail-saved="reload"
         :on-update-fields="onUpdateFields"
@@ -153,6 +154,7 @@ import { showMessage } from "siyuan";
 import { computed, onMounted, onActivated, ref, onDeactivated } from "vue";
 import {
   addAttributeViewBlocks,
+  appendAttributeViewDetachedBlocksWithValues,
   appendBlock,
   batchSetAttributeViewBlockAttrs,
   getAttributeViewKeysByAvID,
@@ -588,6 +590,55 @@ async function onGanttCreate(payload: { text: string; parent?: string; start_dat
   } catch (e: any) {
     console.error(e);
     showMessage(`创建失败: ${e.message || String(e)}`, 8000, "error");
+    throw e;
+  }
+}
+
+async function onGanttCreateOutcome(payload: {
+  text: string;
+  parent?: string;
+  start_date: Date;
+  duration: number;
+  fields?: Record<string, any>;
+}): Promise<string> {
+  if (!config.value?.avID) {
+    throw new Error("数据库配置缺失");
+  }
+
+  try {
+    // 1. 生成 itemID（思源格式：时间戳-随机字符串）
+    const itemID = `${Date.now()}-${nanoid()}`;
+    
+    console.info(`[dgrrb] creating outcome with itemID ${itemID}...`);
+    
+    // 2. 构建 blocksValues（二维数组，一行数据）
+    const blocksValues: Array<Array<{ keyID: string; [key: string]: any }>> = [[]];
+    
+    // 添加所有字段的值
+    if (payload.fields) {
+      for (const [keyID, value] of Object.entries(payload.fields)) {
+        const keyType = keyTypeById.value[keyID];
+        if (keyType) {
+          // 对于成果，日期时间支持时分（isNotTime: false）
+          const isNotTime = keyType !== "date" ? true : false;
+          const valueObj = buildValue(keyType, value, isNotTime);
+          blocksValues[0].push({
+            keyID,
+            ...valueObj,
+          });
+        }
+      }
+    }
+    
+    // 3. 调用 API 创建非绑定块
+    console.info(`[dgrrb] calling appendAttributeViewDetachedBlocksWithValues for AV ${config.value.avID}...`);
+    await appendAttributeViewDetachedBlocksWithValues(config.value.avID, blocksValues);
+    
+    return itemID;
+    
+  } catch (e: any) {
+    console.error(e);
+    showMessage(`创建成果失败: ${e.message || String(e)}`, 8000, "error");
     throw e;
   }
 }

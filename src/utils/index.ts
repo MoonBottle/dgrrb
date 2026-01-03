@@ -11,7 +11,7 @@ export function getDomByVueComponent(component) {
  * 构建属性视图字段值的函数
  * 将用户输入转换为思源 API 所需的格式
  */
-export function buildValue(keyType: string | undefined, input: any) {
+export function buildValue(keyType: string | undefined, input: any, isNotTime: boolean = true) {
   switch (keyType) {
     case "block":
       return { block: { content: String(input ?? "") } };
@@ -38,12 +38,23 @@ export function buildValue(keyType: string | undefined, input: any) {
       }
       return { mSelect: [] };
     case "date":
+      // 处理日期时间输入：如果是 datetime-local 格式，需要正确解析
+      let dateContent = 0;
+      if (input) {
+        const dateStr = String(input);
+        // 如果是 datetime-local 格式（包含时间），直接解析
+        // 如果是 date 格式（只有日期），添加时间部分
+        const date = dateStr.includes("T") 
+          ? new Date(dateStr)
+          : new Date(`${dateStr}T00:00:00`);
+        dateContent = date.getTime();
+      }
       return {
         date: {
-          content: input ? new Date(`${String(input)}T00:00:00`).getTime() : 0,
+          content: dateContent,
           isNotEmpty: input !== undefined && input !== null && input !== "",
           hasEndDate: false,
-          isNotTime: true,
+          isNotTime: isNotTime,
           content2: 0,
           isNotEmpty2: false,
           formattedContent: "",

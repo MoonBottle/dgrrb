@@ -1,7 +1,7 @@
 <template>
   <div class="dgrrb-task-detail-dialog">
     <div class="dgrrb-task-detail-header">
-      <div class="dgrrb-task-detail-title">创建任务</div>
+      <div class="dgrrb-task-detail-title">{{ defaultType === '成果' ? '创建成果' : '创建任务' }}</div>
       <div style="font-size: 11px; opacity: 0.6; margin-top: 4px;">
         字段数: {{ fields.length }}
       </div>
@@ -38,7 +38,7 @@
             v-else-if="field.type === 'date'"
             v-model="fieldValues[field.keyID]"
             class="b3-text-field"
-            type="date"
+            :type="enableDateTime ? 'datetime-local' : 'date'"
           />
           
           <!-- 选择类型（单选） -->
@@ -147,7 +147,9 @@ const props = defineProps<{
   keyTypeById: Record<string, string>;
   config: TaskAvConfig;
   parentTaskId?: string;
-  onCreate: (payload: { text: string; parent?: string; start_date: Date; duration: number }) => Promise<string>;
+  defaultType?: string; // 默认类型（"任务"或"成果"）
+  enableDateTime?: boolean; // 是否启用日期时间输入（支持时分）
+  onCreate: (payload: { text: string; parent?: string; start_date: Date; duration: number; fields?: Record<string, any> }) => Promise<string>;
   onUpdate: (itemID: string, updates: Record<string, any>) => Promise<void>;
   onClose?: () => void;
 }>();
@@ -208,12 +210,36 @@ function initializeFields() {
   }
   
   // 设置默认值
-  const today = new Date().toISOString().slice(0, 10);
-  if (props.config.startKeyID) {
-    values[props.config.startKeyID] = today;
-  }
-  if (props.config.endKeyID) {
-    values[props.config.endKeyID] = today;
+  if (props.enableDateTime) {
+    // 成果创建：结束时间为当前时间，开始时间为当前时间往前推1小时
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    
+    // 格式化为 datetime-local 格式 (YYYY-MM-DDTHH:mm)
+    const formatDateTimeLocal = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      return `${year}-${month}-${day}T${hours}:${minutes}`;
+    };
+    
+    if (props.config.startKeyID) {
+      values[props.config.startKeyID] = formatDateTimeLocal(oneHourAgo);
+    }
+    if (props.config.endKeyID) {
+      values[props.config.endKeyID] = formatDateTimeLocal(now);
+    }
+  } else {
+    // 任务创建：使用今天的日期
+    const today = new Date().toISOString().slice(0, 10);
+    if (props.config.startKeyID) {
+      values[props.config.startKeyID] = today;
+    }
+    if (props.config.endKeyID) {
+      values[props.config.endKeyID] = today;
+    }
   }
   if (props.parentTaskId && props.config.parentKeyID) {
     values[props.config.parentKeyID] = props.parentTaskId;
@@ -237,20 +263,21 @@ function initializeFields() {
     }
   }
   
-  // 设置类型默认值为"任务"
+  // 设置类型默认值（根据 defaultType prop，默认为"任务"）
   if (props.config.typeKeyID) {
     const typeField = fields.value.find(f => f.keyID === props.config.typeKeyID);
     if (typeField) {
-      // 查找"任务"选项
-      const taskOption = typeField.options?.find((opt: any) => {
+      const targetType = props.defaultType || "任务";
+      // 查找目标类型选项
+      const typeOption = typeField.options?.find((opt: any) => {
         const optName = opt.name || opt.content || "";
-        return optName === "任务" || optName.toLowerCase().includes("任务");
+        return optName === targetType || optName.toLowerCase().includes(targetType.toLowerCase());
       });
-      if (taskOption) {
-        values[props.config.typeKeyID] = taskOption.name || taskOption.content || "任务";
+      if (typeOption) {
+        values[props.config.typeKeyID] = typeOption.name || typeOption.content || targetType;
       } else {
-        // 如果没有找到，直接使用"任务"
-        values[props.config.typeKeyID] = "任务";
+        // 如果没有找到，直接使用目标类型
+        values[props.config.typeKeyID] = targetType;
       }
     }
   }
@@ -291,12 +318,32 @@ async function handleCreate() {
     const blockKeyId = fields.value.find(f => f.type === "block")?.keyID;
     const taskName = blockKeyId ? String(fieldValues.value[blockKeyId] || "").trim() : "新任务";
     
+    // 收集所有字段的值（用于成果创建时一次性设置）
+    const allFields: Record<string, any> = {};
+    for (const field of fields.value) {
+      const value = fieldValues.value[field.keyID];
+      if (value !== undefined && value !== null && value !== "") {
+        allFields[field.keyID] = value;
+      }
+    }
+    
     // 提取开始日期和结束日期
     const startDateStr = props.config.startKeyID ? fieldValues.value[props.config.startKeyID] : "";
     const endDateStr = props.config.endKeyID ? fieldValues.value[props.config.endKeyID] : "";
     
-    const startDate = startDateStr ? new Date(`${startDateStr}T00:00:00`) : new Date();
-    const endDate = endDateStr ? new Date(`${endDateStr}T00:00:00`) : startDate;
+    // 处理日期时间：如果是 datetime-local 格式（包含时间），直接解析；否则添加时间部分
+    let startDate: Date;
+    let endDate: Date;
+    if (startDateStr) {
+      startDate = startDateStr.includes("T") ? new Date(startDateStr) : new Date(`${startDateStr}T00:00:00`);
+    } else {
+      startDate = new Date();
+    }
+    if (endDateStr) {
+      endDate = endDateStr.includes("T") ? new Date(endDateStr) : new Date(`${endDateStr}T00:00:00`);
+    } else {
+      endDate = startDate;
+    }
     
     // 计算持续时间（天数，包含开始和结束日期）
     const duration = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) + 1);
@@ -304,12 +351,13 @@ async function handleCreate() {
     // 提取父任务 ID
     const parentId = props.config.parentKeyID ? fieldValues.value[props.config.parentKeyID] : props.parentTaskId;
     
-    // 调用 onCreate 创建任务
-    console.info("[dgrrb] TaskCreateDialog: creating task", {
+    // 调用 onCreate 创建任务/成果
+    console.info("[dgrrb] TaskCreateDialog: creating", props.enableDateTime ? "outcome" : "task", {
       text: taskName,
       parent: parentId,
       start_date: startDate,
       duration,
+      fields: props.enableDateTime ? allFields : undefined,
     });
     
     const itemID = await props.onCreate({
@@ -317,54 +365,58 @@ async function handleCreate() {
       parent: parentId,
       start_date: startDate,
       duration,
+      fields: props.enableDateTime ? allFields : undefined, // 成果创建时传递所有字段
     });
     
     if (!itemID) {
-      showMessage("创建任务失败：未返回任务 ID", 5000, "error");
+      showMessage(`创建${props.enableDateTime ? "成果" : "任务"}失败：未返回 ID`, 5000, "error");
       creating.value = false;
       return;
     }
     
-    console.info("[dgrrb] TaskCreateDialog: task created, itemID:", itemID);
+    console.info("[dgrrb] TaskCreateDialog:", props.enableDateTime ? "outcome" : "task", "created, itemID:", itemID);
     
-    // 等待一下，确保任务已创建
-    // await new Promise(r => setTimeout(r, 500));
-    
-    // 构建其他字段的更新
-    const updates: Record<string, any> = {};
-    
-    for (const field of fields.value) {
-      // 跳过主键 block 字段（已经在创建时设置）
-      if (field.type === "block") {
-        continue;
+    // 如果是成果创建（enableDateTime 为 true），直接传递所有字段给 onCreate
+    if (props.enableDateTime) {
+      // 成果创建：所有字段已在 onCreate 中处理，不需要额外更新
+      console.info("[dgrrb] TaskCreateDialog: outcome created with all fields", allFields);
+    } else {
+      // 任务创建：构建其他字段的更新（排除已在创建时设置的字段）
+      const updates: Record<string, any> = {};
+      
+      for (const field of fields.value) {
+        // 跳过主键 block 字段（已经在创建时设置）
+        if (field.type === "block") {
+          continue;
+        }
+        
+        // 跳过开始日期和结束日期（已经在创建时设置）
+        if (field.keyID === props.config.startKeyID || field.keyID === props.config.endKeyID) {
+          continue;
+        }
+        
+        // 跳过父任务（如果已经在创建时设置）
+        if (field.keyID === props.config.parentKeyID && parentId) {
+          continue;
+        }
+        
+        const value = fieldValues.value[field.keyID];
+        if (value !== undefined && value !== null && value !== "") {
+          const keyType = props.keyTypeById[field.keyID];
+          updates[field.keyID] = buildValue(keyType, value, true); // 任务创建时 isNotTime: true
+        }
       }
       
-      // 跳过开始日期和结束日期（已经在创建时设置）
-      if (field.keyID === props.config.startKeyID || field.keyID === props.config.endKeyID) {
-        continue;
+      // 如果有其他字段需要更新，调用 onUpdate
+      if (Object.keys(updates).length > 0) {
+        console.info("[dgrrb] TaskCreateDialog: updating additional fields", updates);
+        await props.onUpdate(itemID, updates);
       }
       
-      // 跳过父任务（如果已经在创建时设置）
-      if (field.keyID === props.config.parentKeyID && parentId) {
-        continue;
-      }
-      
-      const value = fieldValues.value[field.keyID];
-      if (value !== undefined && value !== null && value !== "") {
-        const keyType = props.keyTypeById[field.keyID];
-        updates[field.keyID] = buildValue(keyType, value);
-      }
+      console.info("[dgrrb] TaskCreateDialog: task created successfully");
+      showMessage("创建任务成功", 2000, "info");
+      handleCancel();
     }
-    
-    // 如果有其他字段需要更新，调用 onUpdate
-    if (Object.keys(updates).length > 0) {
-      console.info("[dgrrb] TaskCreateDialog: updating additional fields", updates);
-      await props.onUpdate(itemID, updates);
-    }
-    
-    console.info("[dgrrb] TaskCreateDialog: task created successfully");
-    showMessage("创建任务成功", 2000, "info");
-    handleCancel();
   } catch (e: any) {
     console.error("[dgrrb] TaskCreateDialog: create error:", e);
     showMessage(`创建失败: ${e.message || String(e)}`, 5000, "error");
