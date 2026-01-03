@@ -25,83 +25,6 @@
         <div class="b3-chip" v-if="rowCount !== null">行数: {{ rowCount }}</div>
       </div>
 
-      <div v-if="tasks.length" class="dgrrb-taskgantt__tableWrap">
-        <table class="b3-table">
-          <thead>
-            <tr>
-              <th>任务</th>
-              <th v-if="config.parentKeyID">父任务</th>
-              <th v-if="config.startKeyID">开始</th>
-              <th v-if="config.endKeyID">结束</th>
-              <th v-if="config.statusKeyID">状态</th>
-              <th v-if="config.progressKeyID">进度</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="it in displayTasks" :key="it.task.docId">
-              <td>
-                <div class="dgrrb-taskgantt__titleCell">
-                  <div class="dgrrb-taskgantt__titleText">
-                    <span class="dgrrb-taskgantt__indent" :style="{ width: `${it.depth * 16}px` }" />
-                    {{ it.task.title }}
-                  </div>
-                  <div class="dgrrb-taskgantt__idText">
-                    rowID: {{ it.task.docId }}<span v-if="it.task.blockId"> · blockID: {{ it.task.blockId }}</span>
-                  </div>
-                </div>
-              </td>
-
-              <td v-if="config.parentKeyID">
-                <input
-                  class="b3-text-field"
-                  :value="it.task.parentId || ''"
-                  placeholder="父任务（建议填 blockID）"
-                  @change="(e) => updateRelation(it.task.docId, config!.parentKeyID!, (e.target as HTMLInputElement).value)"
-                />
-              </td>
-
-              <td v-if="config.startKeyID">
-                <input
-                  class="b3-text-field"
-                  type="date"
-                  :value="it.task.start || ''"
-                  @change="(e) => updateCell(it.task.docId, config!.startKeyID!, (e.target as HTMLInputElement).value)"
-                />
-              </td>
-
-              <td v-if="config.endKeyID">
-                <input
-                  class="b3-text-field"
-                  type="date"
-                  :value="it.task.end || ''"
-                  @change="(e) => updateCell(it.task.docId, config!.endKeyID!, (e.target as HTMLInputElement).value)"
-                />
-              </td>
-
-              <td v-if="config.statusKeyID">
-                <input
-                  class="b3-text-field"
-                  :value="it.task.status || ''"
-                  placeholder="输入状态（mSelect 单选）"
-                  @change="(e) => updateCell(it.task.docId, config!.statusKeyID!, (e.target as HTMLInputElement).value)"
-                />
-              </td>
-
-              <td v-if="config.progressKeyID">
-                <input
-                  class="b3-text-field"
-                  type="number"
-                  min="0"
-                  max="100"
-                  :value="it.task.progress ?? ''"
-                  @change="(e) => updateCell(it.task.docId, config!.progressKeyID!, (e.target as HTMLInputElement).value)"
-                />
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
       <DhtmlxGantt
         v-if="tasks.length"
         :plugin="props.plugin"
@@ -139,11 +62,6 @@
 
         <pre v-if="reportMd" class="b3-typography dgrrb-taskgantt__reportBody">{{ reportMd }}</pre>
       </div>
-
-      <details v-if="raw" class="dgrrb-taskgantt__raw">
-        <summary class="b3-chip">展开原始 renderAttributeView 响应（调试）</summary>
-        <pre class="b3-typography">{{ JSON.stringify(raw, null, 2) }}</pre>
-      </details>
     </template>
   </div>
 </template>
@@ -158,12 +76,9 @@ import {
   appendBlock,
   batchSetAttributeViewBlockAttrs,
   getAttributeViewKeysByAvID,
-  getAttributeViewKeysOfBlock,
   getBlockByID,
   removeAttributeViewBlocks,
   renderAttributeView,
-  requestRaw,
-  setAttributeViewBlockAttr,
 } from "@/api";
 import { parseRenderAttributeViewToTasks, type Task, type TaskAvConfig } from "@/domain/task";
 import { buildValue } from "@/utils";
@@ -287,42 +202,6 @@ async function reload() {
   }
 }
 
-async function ensureCellId(itemID: string, avID: string, keyID: string, retry = 3): Promise<string | undefined> {
-  // first: from parsed tasks cache
-  const t = tasks.value.find(x => x.docId === itemID);
-  const cached = t?.cells?.[keyID]?.cellID;
-  if (cached)
-    return cached;
-  
-  console.info(`[dgrrb] ensureCellId: cache miss for itemID ${itemID} key ${keyID}. Task cells keys: ${Object.keys(t?.cells || {}).join(",")}`);
-
-  // fallback: query by block id (docId)
-  for (let i = 0; i < retry; i++) {
-    const res = await getAttributeViewKeysOfBlock(itemID);
-    const list = res?.data ?? res;
-    const listArr = toArray(list);
-    const found = listArr.find((it: any) => it?.avID === avID);
-    
-    if (!found) {
-        console.warn(`[dgrrb] ensureCellId: AV ${avID} not found in block KVs`);
-    } else {
-        const kv = found?.keyValues?.find((x: any) => x?.key?.id === keyID);
-        if (!kv) console.warn(`[dgrrb] ensureCellId: Key ${keyID} not found in KVs`);
-        else if (!kv.values?.length) console.warn(`[dgrrb] ensureCellId: Key ${keyID} found but values empty`);
-        
-        const id = kv?.values?.[0]?.id;
-        if (id) return id;
-    }
-
-    if (retry > 1 && i < retry - 1) {
-      console.info(`[dgrrb] cellID for itemID ${itemID} key ${keyID} not found, retrying (${i + 1}/${retry})...`);
-      await new Promise(r => setTimeout(r, 500));
-    }
-  }
-  return undefined;
-}
-
-
 async function batchUpdateCells(
   itemID: string,
   updates: Array<{ keyID: string; value: any; keyType?: string }>,
@@ -401,36 +280,6 @@ async function batchUpdateCells(
     showMessage(`批量更新失败: ${e.message || String(e)}`, 8000, "error");
     return false;
   }
-}
-
-async function updateCell(itemID: string, keyID: string, input: any, options?: { reloadAfter?: boolean }) {
-  if (!config.value?.avID)
-    return;
-  const cellID = await ensureCellId(itemID, config.value.avID, keyID, 5);
-  if (!cellID) {
-    showMessage("无法定位 cellID（请先确保该列在数据库里对该行有值/或刷新后重试）", 8000, "error");
-    return;
-  }
-  const keyType = keyTypeById.value[keyID];
-  console.info(`[dgrrb] updateCell: itemID=${itemID}, key=${keyID}, type=${keyType}, input=${input}, cellID=${cellID}`);
-  // use requestRaw to see actual error from SiYuan
-  const resp = await requestRaw("/api/av/setAttributeViewBlockAttr", {
-    avID: config.value.avID,
-    keyID,
-    rowID: itemID,
-    cellID,
-    value: buildValue(keyType, input),
-  });
-
-  if (resp && resp.code !== 0) {
-      console.error(`[dgrrb] updateCell failed:`, resp);
-      return false;
-  } else {
-      console.info(`[dgrrb] updateCell success.`);
-  }
-  if (options?.reloadAfter !== false)
-    await reload();
-  return true;
 }
 
 async function onGanttUpdate(payload: { itemID: string; start?: string; end?: string; progress?: number; parentId?: string }) {
@@ -682,60 +531,6 @@ async function onUpdateFields(itemID: string, updates: Record<string, any>) {
   }
 }
 
-async function updateRelation(itemID: string, keyID: string, parentId: string, options?: { reloadAfter?: boolean }) {
-  console.info(`[dgrrb] updateRelation: itemID=${itemID}, targetParentId=${parentId}`);
-  if (!config.value?.avID)
-    return;
-  const cellID = await ensureCellId(itemID, config.value.avID, keyID, 5);
-  if (!cellID) {
-    showMessage("无法定位 cellID（请先确保该列在数据库里对该行有值/或刷新后重试）", 8000, "error");
-    return;
-  }
-
-  // 如果该列其实不是 relation（例如你截图里"父任务"是 text），导致 keyType!=relation
-  const keyType = keyTypeById.value[keyID];
-  console.info(`[dgrrb] updateRelation: keyType=${keyType}`);
-  
-  let success = false;
-  if (keyType && keyType !== "relation") {
-    success = await updateCell(itemID, keyID, parentId, { ...options, reloadAfter: false });
-    if (success) {
-        if (options?.reloadAfter !== false) await reload();
-        return;
-    }
-    console.warn(`[dgrrb] updateRelation: text update failed, falling back to relation tries...`);
-  }
-
-  const tries = [
-    { relation: [{ content: parentId }] },
-    { relation: [{ id: parentId }] },
-    { relation: { blockIDs: [parentId] } },
-  ];
-  for (const value of tries) {
-    const resp = await requestRaw("/api/av/setAttributeViewBlockAttr", {
-      avID: config.value.avID,
-      keyID,
-      rowID: itemID,
-      cellID,
-      value,
-    });
-    if (resp.code === 0) {
-      if (options?.reloadAfter !== false)
-        await reload();
-      return;
-    }
-  }
-  showMessage("设置父任务失败：可能是关系列 value 结构与当前版本不兼容", 8000, "error");
-}
-
-function openSetting() {
-  if (props.dbId) {
-    props.plugin.openSetting(props.dbId);
-  } else {
-    props.plugin.openSetting();
-  }
-}
-
 // Expose reload method for tab update callback
 defineExpose({
   reload,
@@ -755,56 +550,6 @@ onActivated(() => {
 // Optional: handle deactivation
 onDeactivated(() => {
   console.log("[dgrrb] TaskGanttApp deactivated");
-});
-
-const displayTasks = computed(() => {
-  const list = tasks.value;
-  const parentKeyEnabled = !!config.value?.parentKeyID;
-  // 兼容：很多人父任务列会存“主键 block.id”，而不是 row.id
-  const nodeId = (t: Task) => (t.blockId || t.docId);
-  const byId = new Map(list.map(t => [nodeId(t), t]));
-  const children = new Map<string, Task[]>();
-
-  for (const t of list) {
-    const p = parentKeyEnabled ? (t.parentId || "") : "";
-    if (!children.has(p))
-      children.set(p, []);
-    children.get(p)!.push(t);
-  }
-
-  const isRoot = (t: Task) => {
-    if (!parentKeyEnabled)
-      return true;
-    if (!t.parentId)
-      return true;
-    return !byId.has(t.parentId);
-  };
-
-  const roots = list.filter(isRoot);
-  const sortFn = (a: Task, b: Task) => (a.start || "").localeCompare(b.start || "") || a.title.localeCompare(b.title);
-  roots.sort(sortFn);
-
-  const out: Array<{ task: Task; depth: number }> = [];
-  const visited = new Set<string>();
-  const dfs = (t: Task, depth: number) => {
-    if (visited.has(t.docId))
-      return;
-    visited.add(t.docId);
-    out.push({ task: t, depth });
-    const kids = (children.get(nodeId(t)) || []).slice().sort(sortFn);
-    for (const k of kids)
-      dfs(k, depth + 1);
-  };
-
-  for (const r of roots)
-    dfs(r, 0);
-
-  // append any unlinked cycles
-  for (const t of list) {
-    if (!visited.has(t.docId))
-      dfs(t, 0);
-  }
-  return out;
 });
 
 function isDoneStatus(s?: string) {
@@ -896,38 +641,6 @@ async function copyReport() {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
-}
-
-.dgrrb-taskgantt__raw {
-  margin-top: 12px;
-}
-
-.dgrrb-taskgantt__tableWrap {
-  margin-top: 12px;
-  overflow: auto;
-}
-
-.dgrrb-taskgantt__titleCell {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.dgrrb-taskgantt__titleText {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 500;
-}
-
-.dgrrb-taskgantt__indent {
-  display: inline-block;
-  flex: 0 0 auto;
-}
-
-.dgrrb-taskgantt__idText {
-  font-size: 11px;
-  opacity: 0.7;
 }
 
 .dgrrb-taskgantt__report {
