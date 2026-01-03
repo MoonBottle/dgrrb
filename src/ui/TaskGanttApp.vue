@@ -113,7 +113,6 @@
         :on-create="onGanttCreate"
         :on-delete="onGanttDelete"
         :on-detail-saved="reload"
-        :on-update-fields="onUpdateFields"
       />
 
       <div class="dgrrb-taskgantt__report">
@@ -613,42 +612,6 @@ async function onGanttCreate(payload: { text: string; parent?: string; start_dat
     console.error(e);
     showMessage(`创建失败: ${e.message || String(e)}`, 8000, "error");
     throw e;
-  }
-}
-
-async function onUpdateFields(rowId: string, updates: Record<string, any>) {
-  console.info("[dgrrb] onUpdateFields called", rowId, updates);
-  if (!config.value?.avID) {
-    return;
-  }
-
-  try {
-    // 构建批量请求的 values 数组
-    const values = Object.entries(updates).map(([keyID, value]) => ({
-      keyID,
-      itemID: rowId,
-      value,
-    }));
-
-    if (values.length === 0) {
-      return;
-    }
-
-    console.info(`[dgrrb] onUpdateFields: updating ${values.length} fields for row ${rowId}`);
-    const resp = await batchSetAttributeViewBlockAttrs(config.value.avID, values);
-
-    if (resp && resp.code !== 0) {
-      console.error(`[dgrrb] onUpdateFields failed:`, resp);
-      showMessage("更新字段失败", 5000, "error");
-      return;
-    }
-
-    console.info(`[dgrrb] onUpdateFields success`);
-    // 刷新数据
-    await reload();
-  } catch (e: any) {
-    console.error(`[dgrrb] onUpdateFields error:`, e);
-    showMessage(`更新字段失败: ${e.message || String(e)}`, 5000, "error");
   }
 }
 
