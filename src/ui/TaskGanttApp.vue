@@ -6,7 +6,7 @@
         <span v-else>任务甘特（AV）</span>
       </div>
       <div class="dgrrb-taskgantt__actions">
-        <button class="b3-button b3-button--small" type="button" @click="reload">刷新</button>
+        <button class="b3-button b3-button--primary" type="button" @click="reload">刷新</button>
       </div>
     </div>
 
@@ -25,10 +25,40 @@
         <div class="b3-chip" v-if="rowCount !== null">行数: {{ rowCount }}</div>
       </div>
 
+      <div class="dgrrb-taskgantt__filters" v-if="config.statusKeyID || config.typeKeyID || config.projectKeyID">
+        <div class="dgrrb-taskgantt__filterField" v-if="config.statusKeyID">
+          <label class="dgrrb-taskgantt__filterLabel">状态</label>
+          <select v-model="filterStatus" class="b3-select">
+            <option value="">全部</option>
+            <option v-for="option in getFilterOptions(config.statusKeyID)" :key="option" :value="option">
+              {{ option }}
+            </option>
+          </select>
+        </div>
+        <div class="dgrrb-taskgantt__filterField" v-if="config.typeKeyID">
+          <label class="dgrrb-taskgantt__filterLabel">类型</label>
+          <select v-model="filterType" class="b3-select">
+            <option value="">全部</option>
+            <option v-for="option in getFilterOptions(config.typeKeyID)" :key="option" :value="option">
+              {{ option }}
+            </option>
+          </select>
+        </div>
+        <div class="dgrrb-taskgantt__filterField" v-if="config.projectKeyID">
+          <label class="dgrrb-taskgantt__filterLabel">项目</label>
+          <select v-model="filterProject" class="b3-select">
+            <option value="">全部</option>
+            <option v-for="option in getFilterOptions(config.projectKeyID)" :key="option" :value="option">
+              {{ option }}
+            </option>
+          </select>
+        </div>
+      </div>
+
       <DhtmlxGantt
-        v-if="tasks.length"
+        v-if="filteredTasks.length"
         :plugin="props.plugin"
-        :tasks="tasks"
+        :tasks="filteredTasks"
         :key-type-by-id="keyTypeById"
         :config="config!"
         :raw-data="raw"
@@ -44,8 +74,8 @@
         <div class="dgrrb-taskgantt__reportHeader">
           <div class="dgrrb-taskgantt__reportTitle">日报/月报汇总</div>
           <div class="dgrrb-taskgantt__actions">
-            <button class="b3-button b3-button--small" type="button" @click="generateReport">生成汇总</button>
-            <button class="b3-button b3-button--small" type="button" @click="copyReport" :disabled="!reportMd">复制</button>
+            <button class="b3-button b3-button--primary" type="button" @click="generateReport">生成汇总</button>
+            <button class="b3-button b3-button--primary" type="button" @click="copyReport" :disabled="!reportMd">复制</button>
           </div>
         </div>
 
@@ -80,7 +110,7 @@ import {
   removeAttributeViewBlocks,
   renderAttributeView,
 } from "@/api";
-import { parseRenderAttributeViewToTasks, type Task, type TaskAvConfig } from "@/domain/task";
+import { parseRenderAttributeViewToTasks, type Task, type TaskAvConfig, valueToText } from "@/domain/task";
 import { buildValue } from "@/utils";
 import { nanoid } from "nanoid";
 import DhtmlxGantt from "@/ui/DhtmlxGantt.vue";
@@ -96,10 +126,16 @@ const config = ref<TaskAvConfig | null>(null);
 const raw = ref<any>(null);
 const tasks = ref<Task[]>([]);
 const keyTypeById = ref<Record<string, string>>({});
+const keysById = ref<Record<string, any>>({});
 const reportFrom = ref(new Date().toISOString().slice(0, 10));
 const reportTo = ref(new Date().toISOString().slice(0, 10));
 const reportMd = ref("");
 const dbName = ref<string>("");
+
+// 筛选状态
+const filterStatus = ref("进行中");
+const filterType = ref("任务");
+const filterProject = ref("");
 
 function toArray(maybeArr: any): any[] {
   if (Array.isArray(maybeArr))
@@ -150,6 +186,70 @@ const rowCount = computed(() => {
   return null;
 });
 
+// 获取筛选器的可选项
+function getFilterOptions(keyID: string | undefined): string[] {
+  if (!keyID) return [];
+  
+  // 首先尝试从 keysById 中获取 key 定义和 options
+  const keyDef = keysById.value[keyID];
+  
+  if (keyDef?.options && Array.isArray(keyDef.options)) {
+    return keyDef.options.map((opt: any) => {
+      if (typeof opt === "string") return opt;
+      return opt.name || opt.content || "";
+    }).filter(Boolean);
+  }
+  
+  // 如果没有 options，从 tasks 中提取所有已使用的值
+  const values = new Set<string>();
+  for (const task of tasks.value) {
+    const cell = task.cells[keyID];
+    if (cell?.value !== undefined && cell.value !== null) {
+      const text = valueToText(cell.value);
+      if (text) {
+        values.add(text);
+      }
+    }
+  }
+  return Array.from(values).sort();
+}
+
+// 筛选后的任务列表
+const filteredTasks = computed(() => {
+  if (!config.value) return tasks.value;
+  
+  return tasks.value.filter((task) => {
+    // 状态筛选
+    if (filterStatus.value && config.value.statusKeyID) {
+      const statusCell = task.cells[config.value.statusKeyID];
+      const statusText = statusCell?.value ? valueToText(statusCell.value) : "";
+      if (statusText !== filterStatus.value) {
+        return false;
+      }
+    }
+    
+    // 类型筛选
+    if (filterType.value && config.value.typeKeyID) {
+      const typeCell = task.cells[config.value.typeKeyID];
+      const typeText = typeCell?.value ? valueToText(typeCell.value) : "";
+      if (typeText !== filterType.value) {
+        return false;
+      }
+    }
+    
+    // 项目筛选
+    if (filterProject.value && config.value.projectKeyID) {
+      const projectCell = task.cells[config.value.projectKeyID];
+      const projectText = projectCell?.value ? valueToText(projectCell.value) : "";
+      if (projectText !== filterProject.value) {
+        return false;
+      }
+    }
+    
+    return true;
+  });
+});
+
 async function loadConfig() {
   console.log("[dgrrb] loadConfig called, dbId:", props.dbId);
   if (props.dbId) {
@@ -186,6 +286,9 @@ async function reload() {
     const keyArr = normalizeAvKeys(keys);
     keyTypeById.value = Object.fromEntries(
       keyArr.map((k: any) => [k.id, k.type]),
+    );
+    keysById.value = Object.fromEntries(
+      keyArr.map((k: any) => [k.id, k]),
     );
 
     raw.value = await renderAttributeView(config.value.avID, {
@@ -641,6 +744,26 @@ async function copyReport() {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
+}
+
+.dgrrb-taskgantt__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  align-items: center;
+}
+
+.dgrrb-taskgantt__filterField {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dgrrb-taskgantt__filterLabel {
+  min-width: 40px;
+  font-size: 12px;
+  opacity: 0.8;
 }
 
 .dgrrb-taskgantt__report {
