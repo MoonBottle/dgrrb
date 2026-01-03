@@ -143,6 +143,7 @@ export default class PluginSample extends Plugin {
           parentKeyID?: HTMLSelectElement;
           progressKeyID?: HTMLSelectElement;
           typeKeyID?: HTMLSelectElement;
+          projectKeyID?: HTMLSelectElement;
         } | undefined;
 
         if (!els?.avID) {
@@ -159,6 +160,7 @@ export default class PluginSample extends Plugin {
           parentKeyID: els.parentKeyID?.value?.trim() || "",
           progressKeyID: els.progressKeyID?.value?.trim() || "",
           typeKeyID: els.typeKeyID?.value?.trim() || "",
+          projectKeyID: els.projectKeyID?.value?.trim() || "",
         };
 
         if (!payload.avID) {
@@ -410,6 +412,7 @@ export default class PluginSample extends Plugin {
           if (els.parentKeyID) els.parentKeyID.value = "";
           if (els.progressKeyID) els.progressKeyID.value = "";
           if (els.typeKeyID) els.typeKeyID.value = "";
+          if (els.projectKeyID) els.projectKeyID.value = "";
         }
       }, 100);
     }
@@ -437,6 +440,7 @@ export default class PluginSample extends Plugin {
         if (els.parentKeyID) els.parentKeyID.value = db.config.parentKeyID || "";
         if (els.progressKeyID) els.progressKeyID.value = db.config.progressKeyID || "";
         if (els.typeKeyID) els.typeKeyID.value = db.config.typeKeyID || "";
+        if (els.projectKeyID) els.projectKeyID.value = db.config.projectKeyID || "";
       }
     }, 100);
   }
@@ -749,6 +753,11 @@ export default class PluginSample extends Plugin {
     typeKeyID.append(option("", "（不使用）"));
     typeRow.append(label("类型 keyID"), typeKeyID);
 
+    const projectRow = row();
+    const projectKeyID = select();
+    projectKeyID.append(option("", "（不使用）"));
+    projectRow.append(label("项目 keyID"), projectKeyID);
+
     const setOptions = (sel: HTMLSelectElement, list: Array<{ value: string; text: string }>, first?: { value: string; text: string }) => {
       sel.innerHTML = "";
       if (first)
@@ -776,6 +785,7 @@ export default class PluginSample extends Plugin {
           if (parentKeyID) parentKeyID.value = db.config.parentKeyID || "";
           if (progressKeyID) progressKeyID.value = db.config.progressKeyID || "";
           if (typeKeyID) typeKeyID.value = db.config.typeKeyID || "";
+          if (projectKeyID) projectKeyID.value = db.config.projectKeyID || "";
         }
       }
     };
@@ -800,6 +810,7 @@ export default class PluginSample extends Plugin {
         setOptions(parentKeyID, keyList, { value: "", text: "（不使用）" });
         setOptions(progressKeyID, keyList, { value: "", text: "（不使用）" });
         setOptions(typeKeyID, keyList, { value: "", text: "（不使用）" });
+        setOptions(projectKeyID, keyList, { value: "", text: "（不使用）" });
 
         await fillFromConfig();
         showMessage("已加载 AV 视图与列", 3000, "info");
@@ -827,6 +838,7 @@ export default class PluginSample extends Plugin {
           { name: "状态", type: "select" as const, options: ["进行中", "已完成", "已暂停"] },
           { name: "父任务", type: "relation" as const },
           { name: "进度", type: "number" as const },
+          { name: "项目", type: "select" as const, options: ["项目"] },
         ];
 
         const createdKeys: Record<string, string> = {};
@@ -881,6 +893,9 @@ export default class PluginSample extends Plugin {
         if (createdKeys["进度"] && progressKeyID) {
           progressKeyID.value = createdKeys["进度"];
         }
+        if (createdKeys["项目"] && projectKeyID) {
+          projectKeyID.value = createdKeys["项目"];
+        }
 
         showMessage("自动创建列完成", 3000, "info");
       } catch (e: any) {
@@ -909,6 +924,7 @@ export default class PluginSample extends Plugin {
       parentKeyID,
       progressKeyID,
       typeKeyID,
+      projectKeyID,
     };
 
     wrap.append(
@@ -921,6 +937,7 @@ export default class PluginSample extends Plugin {
       parentRow,
       progressRow,
       typeRow,
+      projectRow,
     );
 
     // init default values

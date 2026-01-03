@@ -7,6 +7,7 @@ export type TaskAvConfig = {
   parentKeyID?: string;
   progressKeyID?: string;
   typeKeyID?: string;
+  projectKeyID?: string;
 };
 
 export type DatabaseConfig = {
