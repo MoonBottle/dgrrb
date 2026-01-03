@@ -223,6 +223,8 @@ export function parseRenderAttributeViewToTasks(
     collect(config.statusKeyID);
     collect(config.parentKeyID);
     collect(config.progressKeyID);
+    collect(config.typeKeyID);
+    collect(config.projectKeyID);
 
     // Title & primary blockId usually come from the "block" (primary key) cell
     const primaryCell = Array.isArray(row?.cells)
