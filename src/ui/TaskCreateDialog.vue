@@ -380,6 +380,9 @@ async function handleCreate() {
     if (props.enableDateTime) {
       // 成果创建：所有字段已在 onCreate 中处理，不需要额外更新
       console.info("[dgrrb] TaskCreateDialog: outcome created with all fields", allFields);
+      console.info("[dgrrb] TaskCreateDialog: outcome created successfully");
+      showMessage("创建成果成功", 2000, "info");
+      handleCancel();
     } else {
       // 任务创建：构建其他字段的更新（排除已在创建时设置的字段）
       const updates: Record<string, any> = {};

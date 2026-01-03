@@ -634,6 +634,9 @@ async function onGanttCreateOutcome(payload: {
     console.info(`[dgrrb] calling appendAttributeViewDetachedBlocksWithValues for AV ${config.value.avID}...`);
     await appendAttributeViewDetachedBlocksWithValues(config.value.avID, blocksValues);
     
+    // 4. 刷新页面
+    await reload();
+    
     return itemID;
     
   } catch (e: any) {
