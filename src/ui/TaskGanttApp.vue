@@ -165,6 +165,7 @@ import {
 } from "@/api";
 import { parseRenderAttributeViewToTasks, type Task, type TaskAvConfig } from "@/domain/task";
 import { buildValue } from "@/utils";
+import { nanoid } from "nanoid";
 import DhtmlxGantt from "@/ui/DhtmlxGantt.vue";
 
 const props = defineProps<{
@@ -325,20 +326,7 @@ async function ensureCellId(rowId: string, avID: string, keyID: string, retry = 
  * itemID 必须是 row.id，而不是 block.id
  */
 function resolveRowId(rowId: string): string {
-  // 通过 docId 查找
-  const taskByDocId = tasks.value.find(t => t.docId === rowId);
-  if (taskByDocId) {
-    return taskByDocId.docId;
-  }
-
-  // 通过 blockId 查找对应的 docId
-  const taskByBlockId = tasks.value.find(t => t.blockId === rowId);
-  if (taskByBlockId) {
-    return taskByBlockId.docId;
-  }
-
-  // 找不到就报错
-  throw new Error(`无法解析 rowId: ${rowId}，未在 tasks 中找到对应的行`);
+  return rowId;
 }
 
 async function batchUpdateCells(
@@ -573,41 +561,45 @@ async function onGanttCreate(payload: { text: string; parent?: string; start_dat
     if (!newBlockID) {
       throw new Error("思源：未能获取新块 ID");
     }
-    // 3. Add this block to the Attribute View
-    console.info(`[dgrrb] adding block ${newBlockID} to AV ${config.value.avID}...`);
-    await addAttributeViewBlocks(config.value.avID, [{ id: newBlockID, isDetached: false }]);
+    
+    // 生成 itemID（思源格式：时间戳-随机字符串）
+    const itemID = `${Date.now()}-${nanoid()}`;
+    
+    // 3. Add this block to the Attribute View with specified itemID
+    console.info(`[dgrrb] adding block ${newBlockID} to AV ${config.value.avID} with itemID ${itemID}...`);
+    await addAttributeViewBlocks(config.value.avID, [{ id: newBlockID, isDetached: false, itemID }]);
 
     // 4. Polling for the new row to appear in the AV
     let found = false;
     for (let i = 0; i < 10; i++) {
         await reload();
-        const foundTask = tasks.value.find(t => t.docId === newBlockID || t.blockId === newBlockID);
+        const foundTask = tasks.value.find(t => t.docId === itemID || t.docId === newBlockID || t.blockId === newBlockID);
         if (foundTask) {
             found = true;
-            console.info(`[dgrrb] new row ${newBlockID} discovered. Available Cells:`, Object.keys(foundTask.cells || {}));
+            console.info(`[dgrrb] new row ${itemID} discovered. Available Cells:`, Object.keys(foundTask.cells || {}));
             break;
         }
-        console.info(`[dgrrb] waiting for row ${newBlockID} to appear in AV (${i + 1}/10)...`);
+        console.info(`[dgrrb] waiting for row ${itemID} to appear in AV (${i + 1}/10)...`);
         await new Promise(r => setTimeout(r, 600));
     }
 
     if (!found) {
-        console.warn(`[dgrrb] row ${newBlockID} added but didn't appear in AV within timeout. Attributes might fail to sync.`);
+        console.warn(`[dgrrb] row ${itemID} added but didn't appear in AV within timeout. Attributes might fail to sync.`);
     }
 
     // 5. Sync attributes (Dates, Parent)
     const start = toYmd(payload.start_date);
     const end = toYmd(new Date(payload.start_date.getTime() + (payload.duration - 1) * 24 * 60 * 60 * 1000));
 
-    console.info(`[dgrrb] triggering attribute sync for row ${newBlockID}. Parent: ${payload.parent || "none"}`);
+    console.info(`[dgrrb] triggering attribute sync for row ${itemID}. Parent: ${payload.parent || "none"}`);
     await onGanttUpdate({
-        rowId: newBlockID,
+        rowId: itemID,
         start,
         end,
         parentId: payload.parent || "",
     });
 
-    return newBlockID;
+    return itemID;
 
   } catch (e: any) {
     console.error(e);

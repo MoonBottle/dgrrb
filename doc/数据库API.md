@@ -38,6 +38,7 @@ avID：数据库 id，非数据库块 id，可在 DOM 中找
 blockID：数据库块 id，非添加的块 id
 srcs
 id：块 id
+itemID: 数据库行ID
 isDetached
 false：是绑定块
 true：是非绑定块
@@ -229,6 +230,51 @@ data	object	新创建的列信息。
 data.id	string	新列的 ID。
 data.name	string	列的名称。
 data.type	string	列的类型。
+
+
+接口说明：根据数据库 itemId 查询 blockId
+接口地址：/api/av/getAttributeViewBoundBlockIDsByItemIDs
+参数：
+
+{
+    "avID": "20250829105223-fk06kth",
+    "itemIDs": ["20250830173630-y0h4nrx", "20250830185837-4ww0kcq", "20250830185839-l1eav89"]
+}
+返回值：
+
+{
+    "code": 0,
+    "msg": "",
+    "data": {
+        "20250830173630-y0h4nrx": "20250829105224-mh7mtd2",
+        "20250830185837-4ww0kcq": "20250829105226-8o6pfqb",
+        "20250830185839-l1eav89": ""
+    }
+}
+"20250830185839-l1eav89": "" 值为空说明是非绑定块
+
+
+接口说明：根据数据库 blockId 查询 itemId
+接口地址：/api/av/getAttributeViewItemIDsByBoundIDs
+接口来源：https://github.com/siyuan-note/siyuan/issues/15708#issuecomment-3239193496
+参数：
+
+{
+    "avID": "20250829105223-fk06kth",
+    "blockIDs": ["20250829105224-mh7mtd2", "20250829105226-8o6pfqb"]
+}
+返回值：
+
+{
+    "code": 0,
+    "msg": "",
+    "data": {
+        "20250829105224-mh7mtd2": "20250830173630-y0h4nrx",
+        "20250829105226-8o6pfqb": "20250830185837-4ww0kcq"
+    }
+}
+
+
 
 作者：Achuan-2
 链接：https://ld246.com/article/1733365731025

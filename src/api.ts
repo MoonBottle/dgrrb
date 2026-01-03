@@ -551,6 +551,7 @@ export async function setAttributeViewBlockAttr(
 export type IAddAttributeViewBlocksSrc = {
   id: BlockId;
   isDetached: boolean;
+  itemID?: string;
 };
 
 export async function addAttributeViewBlocks(
