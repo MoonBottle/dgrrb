@@ -162,7 +162,14 @@ function buildValue(keyType: string | undefined, input: any) {
     case "block":
       return { block: { content: String(input ?? "") } };
     case "number":
-      return { number: { content: Number(input) } };
+      return {
+        number: {
+          content: Number(input) || 0,
+          isNotEmpty: input !== undefined && input !== null && input !== "",
+          format: "",
+          formattedContent: "",
+        },
+      };
     case "select":
       return { mSelect: input ? [{ content: String(input) }] : [] };
     case "mSelect":
@@ -179,6 +186,7 @@ function buildValue(keyType: string | undefined, input: any) {
       return {
         date: {
           content: input ? new Date(`${String(input)}T00:00:00`).getTime() : 0,
+          isNotEmpty: input !== undefined && input !== null && input !== "",
           hasEndDate: false,
           isNotTime: true,
           content2: 0,

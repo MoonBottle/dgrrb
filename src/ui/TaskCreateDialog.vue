@@ -167,7 +167,14 @@ function buildValue(keyType: string | undefined, input: any) {
     case "block":
       return { block: { content: String(input ?? "") } };
     case "number":
-      return { number: { content: Number(input) } };
+      return {
+        number: {
+          content: Number(input) || 0,
+          isNotEmpty: input !== undefined && input !== null && input !== "",
+          format: "",
+          formattedContent: "",
+        },
+      };
     case "select":
       return { mSelect: input ? [{ content: String(input) }] : [] };
     case "mSelect":
@@ -183,6 +190,7 @@ function buildValue(keyType: string | undefined, input: any) {
       return {
         date: {
           content: input ? new Date(`${String(input)}T00:00:00`).getTime() : 0,
+          isNotEmpty: input !== undefined && input !== null && input !== "",
           hasEndDate: false,
           isNotTime: true,
           content2: 0,
@@ -363,7 +371,7 @@ async function handleCreate() {
     console.info("[dgrrb] TaskCreateDialog: task created, rowId:", rowId);
     
     // 等待一下，确保任务已创建
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 1000));
     
     // 构建其他字段的更新
     const updates: Record<string, any> = {};

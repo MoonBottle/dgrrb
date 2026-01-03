@@ -824,7 +824,7 @@ export default class PluginSample extends Plugin {
         const columnsToCreate = [
           { name: "开始日期", type: "date" as const },
           { name: "结束日期", type: "date" as const },
-          { name: "状态", type: "multiSelect" as const, options: ["进行中", "已完成", "已暂停"] },
+          { name: "状态", type: "select" as const, options: ["进行中", "已完成", "已暂停"] },
           { name: "父任务", type: "relation" as const },
           { name: "进度", type: "number" as const },
         ];
@@ -847,7 +847,7 @@ export default class PluginSample extends Plugin {
               type: col.type,
             };
 
-            if (col.type === "multiSelect" && col.options) {
+            if (col.type === "select" && col.options) {
               keyData.options = col.options.map(opt => ({ name: opt }));
             }
 
