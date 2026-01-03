@@ -113,6 +113,7 @@
         :on-create="onGanttCreate"
         :on-delete="onGanttDelete"
         :on-detail-saved="reload"
+        :on-update-fields="onUpdateFields"
       />
 
       <div class="dgrrb-taskgantt__report">
@@ -570,38 +571,46 @@ function toYmd(d: Date): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-async function onGanttCreate(payload: { text: string; parent?: string; start_date: Date; duration: number }) {
+async function onGanttCreate(payload: { text: string; parent?: string; start_date: Date; duration: number }): Promise<string> {
   console.info("[dgrrb] onGanttCreate starting:", payload);
   if (!config.value?.avID)
-    return;
+    throw new Error("未配置 avID");
 
   let parentID: string | undefined;
   if (payload.parent) {
-    parentID = payload.parent;
+    // 如果 parent 是甘特图 ID，需要转换为 rowId
+    const task = tasks.value.find(t => String(t.blockId || t.docId) === payload.parent);
+    if (task) {
+      parentID = task.blockId || task.docId;
+    } else {
+      parentID = payload.parent;
+    }
   } else {
+    parentID = payload.parent;
+  }
+  
+  // 如果没有指定父任务，使用第一个任务作为参考
+  if (!parentID) {
     const refTask = tasks.value[0];
     if (refTask) {
       const blockNode = await getBlockByID(refTask.blockId || refTask.docId);
       parentID = blockNode?.parent_id || refTask.docId;
     } else {
-      showMessage("无法创建任务：视图为空，请先手动在数据库添加一行作为定位参考", 6000, "error");
-      return;
+      throw new Error("无法创建任务：视图为空，请先手动在数据库添加一行作为定位参考");
     }
   }
 
   if (!parentID)
-    return;
+    throw new Error("无法确定父任务位置");
 
   try {
     const res = await appendBlock("markdown", payload.text || "新任务", parentID);
     if (!res || res.length === 0) {
-      showMessage("思源：创建块失败", 6000, "error");
-      return;
+      throw new Error("思源：创建块失败");
     }
     const newBlockID = (res as any)[0]?.doOperations?.[0]?.id || (res as any)[0]?.id;
     if (!newBlockID) {
-      showMessage("思源：未能获取新块 ID", 6000, "error");
-      return;
+      throw new Error("思源：未能获取新块 ID");
     }
     // 3. Add this block to the Attribute View
     console.info(`[dgrrb] adding block ${newBlockID} to AV ${config.value.avID}...`);
@@ -636,11 +645,49 @@ async function onGanttCreate(payload: { text: string; parent?: string; start_dat
         end,
         parentId: payload.parent || "",
     });
-    showMessage("添加子任务成功", 2000, "info");
+
+    return newBlockID;
 
   } catch (e: any) {
     console.error(e);
     showMessage(`创建失败: ${e.message || String(e)}`, 8000, "error");
+    throw e;
+  }
+}
+
+async function onUpdateFields(rowId: string, updates: Record<string, any>) {
+  console.info("[dgrrb] onUpdateFields called", rowId, updates);
+  if (!config.value?.avID) {
+    return;
+  }
+
+  try {
+    // 构建批量请求的 values 数组
+    const values = Object.entries(updates).map(([keyID, value]) => ({
+      keyID,
+      itemID: rowId,
+      value,
+    }));
+
+    if (values.length === 0) {
+      return;
+    }
+
+    console.info(`[dgrrb] onUpdateFields: updating ${values.length} fields for row ${rowId}`);
+    const resp = await batchSetAttributeViewBlockAttrs(config.value.avID, values);
+
+    if (resp && resp.code !== 0) {
+      console.error(`[dgrrb] onUpdateFields failed:`, resp);
+      showMessage("更新字段失败", 5000, "error");
+      return;
+    }
+
+    console.info(`[dgrrb] onUpdateFields success`);
+    // 刷新数据
+    await reload();
+  } catch (e: any) {
+    console.error(`[dgrrb] onUpdateFields error:`, e);
+    showMessage(`更新字段失败: ${e.message || String(e)}`, 5000, "error");
   }
 }
 

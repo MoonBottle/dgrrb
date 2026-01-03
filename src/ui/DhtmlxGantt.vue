@@ -17,6 +17,7 @@ import { createApp } from "vue";
 import type { Task } from "@/domain/task";
 import { extractId } from "@/domain/task";
 import TaskDetailDialog from "./TaskDetailDialog.vue";
+import TaskCreateDialog from "./TaskCreateDialog.vue";
 
 const props = defineProps<{
   plugin: Plugin;
@@ -46,7 +47,8 @@ const props = defineProps<{
     parent?: string;
     start_date: Date;
     duration: number;
-  }) => Promise<void> | void;
+  }) => Promise<string> | string;
+  onUpdateFields?: (rowId: string, updates: Record<string, any>) => Promise<void> | void;
   onDelete: (rowId: string) => Promise<void> | void;
   /** callback when detail dialog saved */
   onDetailSaved?: () => Promise<void> | void;
@@ -238,7 +240,6 @@ onMounted(() => {
     { name: "start_date", label: "开始", align: "center", width: 80 },
     { name: "end_date", label: "结束", align: "center", width: 80 },
     { name: "progress", label: "进度", align: "center", width: 60, template: (t: any) => `${Math.round((t.progress || 0) * 100)}%` },
-    { name: "add", label: "", width: 44 },
   ];
 
   // open doc on double click
@@ -304,15 +305,23 @@ onMounted(() => {
     await sync(id);
   }));
 
-  ganttEvents.push(gantt.attachEvent("onAfterTaskAdd", async (id: string, task: any) => {
+  // 注意：onAfterTaskAdd 事件现在不再使用，因为任务创建通过对话框进行
+  // 保留此事件处理以防其他地方直接调用 gantt.addTask
+  ganttEvents.push(gantt.attachEvent("onAfterTaskAdd", async (_id: string, task: any) => {
     if (isApplying.value)
       return;
-    await props.onCreate({
-      text: task.text,
-      parent: task.parent && task.parent !== 0 ? String(task.parent) : undefined,
-      start_date: task.start_date,
-      duration: task.duration,
-    });
+    try {
+      await props.onCreate({
+        text: task.text,
+        parent: task.parent && task.parent !== 0 ? String(task.parent) : undefined,
+        start_date: task.start_date,
+        duration: task.duration,
+      });
+    } catch (e) {
+      console.error("[dgrrb] onAfterTaskAdd error:", e);
+      // 如果创建失败，从甘特图中删除任务
+      gantt.deleteTask(_id);
+    }
   }));
 
   // 处理右键菜单事件
@@ -360,17 +369,9 @@ onMounted(() => {
       
       menu.addItem({
         icon: "iconPlus",
-        label: "添加子任务",
+        label: "添加任务",
         click: () => {
-          const parentGanttId = String(taskId);
-          const newTask = {
-            text: "新子任务",
-            start_date: task.start_date || new Date(),
-            duration: 1,
-            parent: parentGanttId,
-          };
-          gantt.addTask(newTask, parentGanttId);
-          // onAfterTaskAdd 会自动触发 onCreate
+          openCreateTaskDialog(String(taskId));
         },
       });
 
@@ -554,6 +555,139 @@ function openDetailDialog(rowId: string) {
         containerHTML: container.innerHTML.substring(0, 500),
       });
     }, 100);
+  }, 100);
+}
+
+// 打开创建任务对话框
+function openCreateTaskDialog(parentTaskId?: string) {
+  if (!props.rawData || !props.config?.avID) {
+    console.warn("[dgrrb] Cannot open create task dialog: missing rawData or avID");
+    return;
+  }
+
+  console.info("[dgrrb] Opening create task dialog, parentTaskId:", parentTaskId);
+  
+  let vueApp: any = null;
+  
+  const dialog = new Dialog({
+    title: "创建任务",
+    content: '<div id="dgrrb-create-container"></div>',
+    width: "600px",
+    height: "80vh",
+    destroyCallback: () => {
+      console.info("[dgrrb] Dialog destroyed, unmounting Vue app");
+      if (vueApp) {
+        vueApp.unmount();
+      }
+    },
+  });
+
+  // 等待 Dialog 渲染完成后再挂载 Vue 组件
+  setTimeout(() => {
+    // 查找对话框内容区域
+    let dialogContent = dialog.element.querySelector(".b3-dialog__content");
+    if (!dialogContent) {
+      dialogContent = dialog.element.querySelector('[class*="dialog"]');
+    }
+    if (!dialogContent) {
+      dialogContent = dialog.element.querySelector("#dgrrb-create-container")?.parentElement || null;
+    }
+    
+    if (!dialogContent) {
+      console.error("[dgrrb] Cannot find dialog content area");
+      return;
+    }
+
+    // 查找或创建容器
+    let container = dialogContent.querySelector("#dgrrb-create-container") as HTMLElement;
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "dgrrb-create-container";
+      container.className = "dgrrb-task-create-dialog-container";
+      container.style.cssText = "width: 100%; height: 100%; overflow: hidden;";
+      dialogContent.innerHTML = "";
+      dialogContent.appendChild(container);
+    } else {
+      container.innerHTML = "";
+      container.className = "dgrrb-task-create-dialog-container";
+      container.style.cssText = "width: 100%; height: 100%; overflow: hidden;";
+    }
+
+    console.info("[dgrrb] Creating Vue app for TaskCreateDialog, container:", container);
+    
+    // 解析父任务 ID（如果是甘特图 ID，需要转换为 rowId）
+    let parentRowId: string | undefined = undefined;
+    if (parentTaskId) {
+      parentRowId = ganttIdByRef.value.get(parentTaskId) || parentTaskId;
+    }
+    
+    // 创建 Vue 应用并挂载
+    vueApp = createApp(TaskCreateDialog, {
+      avID: props.config.avID,
+      rawData: props.rawData,
+      keyTypeById: props.keyTypeById,
+      config: props.config,
+      parentTaskId: parentRowId,
+      onCreate: async (payload) => {
+        console.info("[dgrrb] TaskCreateDialog onCreate called", payload);
+        const rowId = await props.onCreate(payload);
+        return rowId;
+      },
+      onUpdate: async (rowId, updates) => {
+        console.info("[dgrrb] TaskCreateDialog onUpdate called", rowId, updates);
+        if (props.onUpdateFields) {
+          await props.onUpdateFields(rowId, updates);
+        } else {
+          // 如果没有 onUpdateFields，使用 onUpdate 来更新字段
+          // 需要将 updates 转换为 onUpdate 的格式
+          const updatePayload: any = {
+            rowId,
+          };
+          
+          // 提取开始日期、结束日期、进度、父任务等
+          if (updates[props.config.startKeyID || ""]) {
+            const dateValue = updates[props.config.startKeyID || ""];
+            if (dateValue?.date?.content) {
+              const date = new Date(dateValue.date.content);
+              updatePayload.start = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+            }
+          }
+          
+          if (updates[props.config.endKeyID || ""]) {
+            const dateValue = updates[props.config.endKeyID || ""];
+            if (dateValue?.date?.content) {
+              const date = new Date(dateValue.date.content);
+              updatePayload.end = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+            }
+          }
+          
+          if (updates[props.config.progressKeyID || ""]) {
+            const numberValue = updates[props.config.progressKeyID || ""];
+            if (numberValue?.number?.content !== undefined) {
+              updatePayload.progress = numberValue.number.content;
+            }
+          }
+          
+          if (updates[props.config.parentKeyID || ""]) {
+            const relationValue = updates[props.config.parentKeyID || ""];
+            if (relationValue?.relation?.[0]?.content) {
+              updatePayload.parentId = relationValue.relation[0].content;
+            }
+          }
+          
+          await props.onUpdate(updatePayload);
+        }
+      },
+      onClose: () => {
+        if (vueApp) {
+          vueApp.unmount();
+        }
+        dialog.destroy();
+      },
+    });
+
+    vueApp.mount(container);
+    console.info("[dgrrb] Vue app mounted successfully for TaskCreateDialog");
   }, 100);
 }
 
