@@ -328,7 +328,7 @@ async function handleCreate() {
     console.info("[dgrrb] TaskCreateDialog: task created, rowId:", rowId);
     
     // 等待一下，确保任务已创建
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 500));
     
     // 构建其他字段的更新
     const updates: Record<string, any> = {};

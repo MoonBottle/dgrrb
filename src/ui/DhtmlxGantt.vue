@@ -48,6 +48,7 @@ const props = defineProps<{
     start_date: Date;
     duration: number;
   }) => Promise<string> | string;
+  onUpdateFields?: (rowId: string, updates: Record<string, any>) => Promise<void> | void;
   onDelete: (rowId: string) => Promise<void> | void;
   /** callback when detail dialog saved */
   onDetailSaved?: () => Promise<void> | void;
@@ -634,43 +635,48 @@ function openCreateTaskDialog(parentTaskId?: string) {
       },
       onUpdate: async (rowId, updates) => {
         console.info("[dgrrb] TaskCreateDialog onUpdate called", rowId, updates);
-        // 将 updates 转换为 onUpdate 的格式
-        const updatePayload: any = {
-          rowId,
-        };
-        
-        // 提取开始日期、结束日期、进度、父任务等
-        if (updates[props.config.startKeyID || ""]) {
-          const dateValue = updates[props.config.startKeyID || ""];
-          if (dateValue?.date?.content) {
-            const date = new Date(dateValue.date.content);
-            updatePayload.start = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+        if (props.onUpdateFields) {
+          await props.onUpdateFields(rowId, updates);
+        } else {
+          // 如果没有 onUpdateFields，使用 onUpdate 来更新字段
+          // 需要将 updates 转换为 onUpdate 的格式
+          const updatePayload: any = {
+            rowId,
+          };
+          
+          // 提取开始日期、结束日期、进度、父任务等
+          if (updates[props.config.startKeyID || ""]) {
+            const dateValue = updates[props.config.startKeyID || ""];
+            if (dateValue?.date?.content) {
+              const date = new Date(dateValue.date.content);
+              updatePayload.start = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+            }
           }
-        }
-        
-        if (updates[props.config.endKeyID || ""]) {
-          const dateValue = updates[props.config.endKeyID || ""];
-          if (dateValue?.date?.content) {
-            const date = new Date(dateValue.date.content);
-            updatePayload.end = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+          
+          if (updates[props.config.endKeyID || ""]) {
+            const dateValue = updates[props.config.endKeyID || ""];
+            if (dateValue?.date?.content) {
+              const date = new Date(dateValue.date.content);
+              updatePayload.end = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+            }
           }
-        }
-        
-        if (updates[props.config.progressKeyID || ""]) {
-          const numberValue = updates[props.config.progressKeyID || ""];
-          if (numberValue?.number?.content !== undefined) {
-            updatePayload.progress = numberValue.number.content;
+          
+          if (updates[props.config.progressKeyID || ""]) {
+            const numberValue = updates[props.config.progressKeyID || ""];
+            if (numberValue?.number?.content !== undefined) {
+              updatePayload.progress = numberValue.number.content;
+            }
           }
-        }
-        
-        if (updates[props.config.parentKeyID || ""]) {
-          const relationValue = updates[props.config.parentKeyID || ""];
-          if (relationValue?.relation?.[0]?.content) {
-            updatePayload.parentId = relationValue.relation[0].content;
+          
+          if (updates[props.config.parentKeyID || ""]) {
+            const relationValue = updates[props.config.parentKeyID || ""];
+            if (relationValue?.relation?.[0]?.content) {
+              updatePayload.parentId = relationValue.relation[0].content;
+            }
           }
+          
+          await props.onUpdate(updatePayload);
         }
-        
-        await props.onUpdate(updatePayload);
       },
       onClose: () => {
         if (vueApp) {
