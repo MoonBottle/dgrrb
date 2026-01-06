@@ -10,6 +10,7 @@ import "@/index.scss";
 import PluginInfoString from '@/../plugin.json'
 import { getAttributeView, getAttributeViewKeysByAvID, addAttributeViewKey } from "@/api";
 import { createApp } from "vue";
+import { pinia } from "@/main";
 import TaskGanttApp from "@/ui/TaskGanttApp.vue";
 import type { DatabaseConfig, TaskAvConfig } from "@/domain/task";
 
@@ -222,6 +223,7 @@ export default class PluginSample extends Plugin {
           plugin,
           dbId: dbId,
         });
+        app.use(pinia);
         app.mount(container);
         this._vueApp = app;
         this._vueContainer = container;

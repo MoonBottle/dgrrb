@@ -11,6 +11,8 @@ import type { Plugin } from "siyuan";
 import { confirm, Menu, openTab, Dialog } from "siyuan";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { createApp } from "vue";
+import { pinia } from "@/main";
+import { useConfigStore } from "@/stores/configStore";
 import type { Task } from "@/domain/task";
 import { extractId } from "@/domain/task";
 import TaskDetailDialog from "./TaskDetailDialog.vue";
@@ -61,6 +63,7 @@ const props = defineProps<{
 const el = ref<HTMLDivElement>();
 const isApplying = ref(false);
 const ganttEvents: string[] = [];
+const configStore = useConfigStore();
 
 const ganttIdByRef = computed(() => {
   const m = new Map<string, string>();
@@ -108,7 +111,8 @@ function applyTasks() {
       
       // Resolve parentRef to the actual ID used in the Gantt chart
       let parent: string | number = 0;
-      if (props.config.parentKeyID && parentRef) {
+      const config = configStore.currentConfig;
+      if (config?.parentKeyID && parentRef) {
           const resolved = ganttIdByRef.value.get(parentRef);
           if (resolved) {
               parent = String(resolved);
@@ -458,11 +462,6 @@ function bindDetailButtons() {
 
 // 打开详情对话框
 function openDetailDialog(rowId: string) {
-  if (!props.rawData || !props.config?.avID) {
-    console.warn("[dgrrb] Cannot open detail dialog: missing rawData or avID");
-    return;
-  }
-
   console.info("[dgrrb] Opening detail dialog for rowId:", rowId);
   
   let vueApp: any = null;
@@ -524,12 +523,9 @@ function openDetailDialog(rowId: string) {
 
     console.info("[dgrrb] Creating Vue app for TaskDetailDialog, container:", container);
     
-    // 创建 Vue 应用并挂载
+    // 创建 Vue 应用并挂载（使用全局 Pinia 实例）
     vueApp = createApp(TaskDetailDialog, {
       rowId,
-      avID: props.config.avID,
-      rawData: props.rawData,
-      keyTypeById: props.keyTypeById,
       onSaved: async () => {
         // 保存成功后，触发父组件的重新加载
         console.info("[dgrrb] Detail dialog saved, triggering reload");
@@ -550,7 +546,7 @@ function openDetailDialog(rowId: string) {
         dialog.destroy();
       },
     });
-
+    vueApp.use(pinia);
     vueApp.mount(container);
     console.info("[dgrrb] Vue app mounted successfully, container children:", container.children.length);
     
@@ -569,11 +565,6 @@ function openDetailDialog(rowId: string) {
 
 // 打开创建任务对话框
 function openCreateTaskDialog(parentTaskId?: string) {
-  if (!props.rawData || !props.config?.avID) {
-    console.warn("[dgrrb] Cannot open create task dialog: missing rawData or avID");
-    return;
-  }
-
   console.info("[dgrrb] Opening create task dialog, parentTaskId:", parentTaskId);
   
   let vueApp: any = null;
@@ -630,12 +621,8 @@ function openCreateTaskDialog(parentTaskId?: string) {
       parentRowId = ganttIdByRef.value.get(parentTaskId) || parentTaskId;
     }
     
-    // 创建 Vue 应用并挂载
+    // 创建 Vue 应用并挂载（使用全局 Pinia 实例）
     vueApp = createApp(TaskCreateDialog, {
-      avID: props.config.avID,
-      rawData: props.rawData,
-      keyTypeById: props.keyTypeById,
-      config: props.config,
       parentTaskId: parentRowId,
       onCreate: async (payload) => {
         console.info("[dgrrb] TaskCreateDialog onCreate called", payload);
@@ -654,31 +641,37 @@ function openCreateTaskDialog(parentTaskId?: string) {
           };
           
           // 提取开始日期、结束日期、进度、父任务等
-          if (updates[props.config.startKeyID || ""]) {
-            const dateValue = updates[props.config.startKeyID || ""];
+          const config = configStore.currentConfig;
+          if (!config) {
+            console.warn("[dgrrb] DhtmlxGantt: config not found in store");
+            return;
+          }
+          
+          if (updates[config.startKeyID || ""]) {
+            const dateValue = updates[config.startKeyID || ""];
             if (dateValue?.date?.content) {
               const date = new Date(dateValue.date.content);
               updatePayload.start = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
             }
           }
           
-          if (updates[props.config.endKeyID || ""]) {
-            const dateValue = updates[props.config.endKeyID || ""];
+          if (updates[config.endKeyID || ""]) {
+            const dateValue = updates[config.endKeyID || ""];
             if (dateValue?.date?.content) {
               const date = new Date(dateValue.date.content);
               updatePayload.end = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
             }
           }
           
-          if (updates[props.config.progressKeyID || ""]) {
-            const numberValue = updates[props.config.progressKeyID || ""];
+          if (updates[config.progressKeyID || ""]) {
+            const numberValue = updates[config.progressKeyID || ""];
             if (numberValue?.number?.content !== undefined) {
               updatePayload.progress = numberValue.number.content;
             }
           }
           
-          if (updates[props.config.parentKeyID || ""]) {
-            const relationValue = updates[props.config.parentKeyID || ""];
+          if (updates[config.parentKeyID || ""]) {
+            const relationValue = updates[config.parentKeyID || ""];
             if (relationValue?.relation?.[0]?.content) {
               updatePayload.parentId = relationValue.relation[0].content;
             }
@@ -694,7 +687,7 @@ function openCreateTaskDialog(parentTaskId?: string) {
         dialog.destroy();
       },
     });
-
+    vueApp.use(pinia);
     vueApp.mount(container);
     console.info("[dgrrb] Vue app mounted successfully for TaskCreateDialog");
   }, 100);
@@ -702,11 +695,6 @@ function openCreateTaskDialog(parentTaskId?: string) {
 
 // 打开创建成果对话框
 function openCreateOutcomeDialog(parentTaskId?: string) {
-  if (!props.rawData || !props.config?.avID) {
-    console.warn("[dgrrb] Cannot open create outcome dialog: missing rawData or avID");
-    return;
-  }
-
   console.info("[dgrrb] Opening create outcome dialog, parentTaskId:", parentTaskId);
   
   let vueApp: any = null;
@@ -763,12 +751,8 @@ function openCreateOutcomeDialog(parentTaskId?: string) {
       parentRowId = ganttIdByRef.value.get(parentTaskId) || parentTaskId;
     }
     
-    // 创建 Vue 应用并挂载
+    // 创建 Vue 应用并挂载（使用全局 Pinia 实例）
     vueApp = createApp(TaskCreateDialog, {
-      avID: props.config.avID,
-      rawData: props.rawData,
-      keyTypeById: props.keyTypeById,
-      config: props.config,
       parentTaskId: parentRowId,
       defaultType: "成果",
       enableDateTime: true,
@@ -793,7 +777,7 @@ function openCreateOutcomeDialog(parentTaskId?: string) {
         dialog.destroy();
       },
     });
-
+    vueApp.use(pinia);
     vueApp.mount(container);
     console.info("[dgrrb] Vue app mounted successfully for TaskCreateDialog (outcome)");
   }, 100);

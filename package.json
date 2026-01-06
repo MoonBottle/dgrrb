@@ -19,6 +19,7 @@
   "dependencies": {
     "dhtmlx-gantt": "^9.0.0",
     "nanoid": "^5.0.0",
+    "pinia": "^3.0.4",
     "vue": "^3.3.8"
   },
   "devDependencies": {

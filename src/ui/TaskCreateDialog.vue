@@ -138,14 +138,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { showMessage } from "siyuan";
-import type { TaskAvConfig } from "@/domain/task";
 import { buildValue } from "@/utils";
+import { useTaskStore } from "@/stores/taskStore";
+import { useConfigStore } from "@/stores/configStore";
 
 const props = defineProps<{
-  avID: string;
-  rawData: any;
-  keyTypeById: Record<string, string>;
-  config: TaskAvConfig;
   parentTaskId?: string;
   defaultType?: string; // 默认类型（"任务"或"成果"）
   enableDateTime?: boolean; // 是否启用日期时间输入（支持时分）
@@ -153,6 +150,9 @@ const props = defineProps<{
   onUpdate: (itemID: string, updates: Record<string, any>) => Promise<void>;
   onClose?: () => void;
 }>();
+
+const taskStore = useTaskStore();
+const configStore = useConfigStore();
 
 const fields = ref<Array<{
   keyID: string;
@@ -169,37 +169,19 @@ const creating = ref(false);
 function initializeFields() {
   console.info("[dgrrb] TaskCreateDialog: initializeFields called");
   
-  // 获取所有字段定义 - 从 keyTypeById 中获取所有已知的字段
-  const allKeyIds = Object.keys(props.keyTypeById);
-  console.info("[dgrrb] TaskCreateDialog: allKeyIds", allKeyIds);
-  
-  // 尝试从 rawData 中获取字段名称和选项
-  const view = props.rawData?.view ?? props.rawData?.data?.view;
-  const columns = view?.columns ?? view?.data?.columns ?? [];
-  const columnMap = new Map<string, any>();
-  
-  if (Array.isArray(columns)) {
-    console.info("[dgrrb] TaskCreateDialog: found columns", columns.length);
-    for (const col of columns) {
-      const keyId = col.keyID || col.keyId || col.id;
-      if (keyId) {
-        columnMap.set(keyId, col);
-      }
-    }
-  } else {
-    console.warn("[dgrrb] TaskCreateDialog: columns is not an array", columns);
+  const config = configStore.currentConfig;
+  if (!config) {
+    console.warn("[dgrrb] TaskCreateDialog: config not found");
+    return;
   }
   
-  // 构建字段列表 - 使用所有在 keyTypeById 中的字段
-  fields.value = allKeyIds.map((keyID) => {
-    const col = columnMap.get(keyID);
-    return {
-      keyID,
-      name: col?.name || col?.label || keyID,
-      type: props.keyTypeById[keyID] || "text",
-      options: col?.options || col?.option || [],
-    };
-  });
+  // 从 store 获取字段定义
+  fields.value = taskStore.tableData.columns.map((col) => ({
+    keyID: col.keyID,
+    name: col.name,
+    type: col.type,
+    options: col.options || [],
+  }));
   
   console.info("[dgrrb] TaskCreateDialog: fields built", fields.value);
   
@@ -225,29 +207,29 @@ function initializeFields() {
       return `${year}-${month}-${day}T${hours}:${minutes}`;
     };
     
-    if (props.config.startKeyID) {
-      values[props.config.startKeyID] = formatDateTimeLocal(oneHourAgo);
+    if (config.startKeyID) {
+      values[config.startKeyID] = formatDateTimeLocal(oneHourAgo);
     }
-    if (props.config.endKeyID) {
-      values[props.config.endKeyID] = formatDateTimeLocal(now);
+    if (config.endKeyID) {
+      values[config.endKeyID] = formatDateTimeLocal(now);
     }
   } else {
     // 任务创建：使用今天的日期
     const today = new Date().toISOString().slice(0, 10);
-    if (props.config.startKeyID) {
-      values[props.config.startKeyID] = today;
+    if (config.startKeyID) {
+      values[config.startKeyID] = today;
     }
-    if (props.config.endKeyID) {
-      values[props.config.endKeyID] = today;
+    if (config.endKeyID) {
+      values[config.endKeyID] = today;
     }
   }
-  if (props.parentTaskId && props.config.parentKeyID) {
-    values[props.config.parentKeyID] = props.parentTaskId;
+  if (props.parentTaskId && config.parentKeyID) {
+    values[config.parentKeyID] = props.parentTaskId;
   }
   
   // 设置状态默认值为"进行中"
-  if (props.config.statusKeyID) {
-    const statusField = fields.value.find(f => f.keyID === props.config.statusKeyID);
+  if (config.statusKeyID) {
+    const statusField = fields.value.find(f => f.keyID === config.statusKeyID);
     if (statusField) {
       // 查找"进行中"选项
       const inProgressOption = statusField.options?.find((opt: any) => {
@@ -255,17 +237,17 @@ function initializeFields() {
         return optName === "进行中" || optName.toLowerCase().includes("进行中");
       });
       if (inProgressOption) {
-        values[props.config.statusKeyID] = inProgressOption.name || inProgressOption.content || "进行中";
+        values[config.statusKeyID] = inProgressOption.name || inProgressOption.content || "进行中";
       } else {
         // 如果没有找到，直接使用"进行中"
-        values[props.config.statusKeyID] = "进行中";
+        values[config.statusKeyID] = "进行中";
       }
     }
   }
   
   // 设置类型默认值（根据 defaultType prop，默认为"任务"）
-  if (props.config.typeKeyID) {
-    const typeField = fields.value.find(f => f.keyID === props.config.typeKeyID);
+  if (config.typeKeyID) {
+    const typeField = fields.value.find(f => f.keyID === config.typeKeyID);
     if (typeField) {
       const targetType = props.defaultType || "任务";
       // 查找目标类型选项
@@ -274,17 +256,17 @@ function initializeFields() {
         return optName === targetType || optName.toLowerCase().includes(targetType.toLowerCase());
       });
       if (typeOption) {
-        values[props.config.typeKeyID] = typeOption.name || typeOption.content || targetType;
+        values[config.typeKeyID] = typeOption.name || typeOption.content || targetType;
       } else {
         // 如果没有找到，直接使用目标类型
-        values[props.config.typeKeyID] = targetType;
+        values[config.typeKeyID] = targetType;
       }
     }
   }
   
   // 设置进度默认值为0
-  if (props.config.progressKeyID) {
-    values[props.config.progressKeyID] = 0;
+  if (config.progressKeyID) {
+    values[config.progressKeyID] = 0;
   }
   
   fieldValues.value = values;
@@ -327,9 +309,16 @@ async function handleCreate() {
       }
     }
     
+    const config = configStore.currentConfig;
+    if (!config) {
+      showMessage("配置缺失", 3000, "error");
+      creating.value = false;
+      return;
+    }
+    
     // 提取开始日期和结束日期
-    const startDateStr = props.config.startKeyID ? fieldValues.value[props.config.startKeyID] : "";
-    const endDateStr = props.config.endKeyID ? fieldValues.value[props.config.endKeyID] : "";
+    const startDateStr = config.startKeyID ? fieldValues.value[config.startKeyID] : "";
+    const endDateStr = config.endKeyID ? fieldValues.value[config.endKeyID] : "";
     
     // 处理日期时间：如果是 datetime-local 格式（包含时间），直接解析；否则添加时间部分
     let startDate: Date;
@@ -349,7 +338,7 @@ async function handleCreate() {
     const duration = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) + 1);
     
     // 提取父任务 ID
-    const parentId = props.config.parentKeyID ? fieldValues.value[props.config.parentKeyID] : props.parentTaskId;
+    const parentId = config.parentKeyID ? fieldValues.value[config.parentKeyID] : props.parentTaskId;
     
     // 调用 onCreate 创建任务/成果
     console.info("[dgrrb] TaskCreateDialog: creating", props.enableDateTime ? "outcome" : "task", {
@@ -394,18 +383,18 @@ async function handleCreate() {
         }
         
         // 跳过开始日期和结束日期（已经在创建时设置）
-        if (field.keyID === props.config.startKeyID || field.keyID === props.config.endKeyID) {
+        if (field.keyID === config.startKeyID || field.keyID === config.endKeyID) {
           continue;
         }
         
         // 跳过父任务（如果已经在创建时设置）
-        if (field.keyID === props.config.parentKeyID && parentId) {
+        if (field.keyID === config.parentKeyID && parentId) {
           continue;
         }
         
         const value = fieldValues.value[field.keyID];
         if (value !== undefined && value !== null && value !== "") {
-          const keyType = props.keyTypeById[field.keyID];
+          const keyType = taskStore.keyTypeById[field.keyID];
           updates[field.keyID] = buildValue(keyType, value, true); // 任务创建时 isNotTime: true
         }
       }
@@ -437,10 +426,9 @@ function handleCancel() {
 onMounted(() => {
   console.info("[dgrrb] TaskCreateDialog mounted, initializing fields...");
   console.info("[dgrrb] Props:", {
-    avID: props.avID,
-    hasRawData: !!props.rawData,
-    keyTypeCount: Object.keys(props.keyTypeById).length,
     parentTaskId: props.parentTaskId,
+    defaultType: props.defaultType,
+    enableDateTime: props.enableDateTime,
   });
   initializeFields();
   console.info("[dgrrb] TaskCreateDialog fields initialized, count:", fields.value.length);

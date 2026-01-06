@@ -133,19 +133,17 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { showMessage } from "siyuan";
-import { batchSetAttributeViewBlockAttrs } from "@/api";
 import { valueToText } from "@/domain/task";
 import { buildValue } from "@/utils";
+import { useTaskStore } from "@/stores/taskStore";
 
 const props = defineProps<{
   rowId: string;
-  avID: string;
-  rawData: any;
-  keyTypeById: Record<string, string>;
-  keys?: any[];
   onSaved?: () => void;
   onClose?: () => void;
 }>();
+
+const taskStore = useTaskStore();
 
 const fields = ref<Array<{
   keyID: string;
@@ -158,19 +156,9 @@ const fieldValues = ref<Record<string, any>>({});
 const saving = ref(false);
 
 
-// 从 rawData 中提取行数据
-function findRowInRawData(rowId: string): any {
-  const view = props.rawData?.view ?? props.rawData?.data?.view;
-  const rows = view?.rows ?? view?.data?.rows ?? [];
-  
-  if (!Array.isArray(rows)) {
-    return null;
-  }
-  
-  return rows.find((row: any) => {
-    const id = row?.id ?? row?.rowID ?? row?.rowId ?? row?.blockID ?? row?.blockId;
-    return String(id) === String(rowId);
-  });
+// 从 tableData 中获取行数据
+function getRowFromTableData(itemID: string) {
+  return taskStore.tableData.rows.find(row => row.itemID === itemID);
 }
 
 // 从行数据中提取字段值
@@ -179,42 +167,13 @@ function extractFieldValue(row: any, keyID: string): any {
     return "";
   }
   
-  // 查找 cell
-  let cell: any = null;
-  
-  if (row.cells) {
-    if (Array.isArray(row.cells)) {
-      cell = row.cells.find((c: any) =>
-        c?.keyID === keyID
-        || c?.keyId === keyID
-        || c?.key?.id === keyID
-        || c?.key?.ID === keyID
-        || c?.value?.keyID === keyID
-        || c?.value?.keyId === keyID
-        || c?.value?.key?.id === keyID
-        || c?.value?.key?.ID === keyID
-      );
-    } else if (typeof row.cells === "object") {
-      cell = row.cells[keyID] ?? row.cells[keyID.toString()];
-    }
-  }
-  
-  if (Array.isArray(row.keyValues)) {
-    const kv = row.keyValues.find((kv: any) => kv?.key?.id === keyID || kv?.keyID === keyID);
-    if (kv) {
-      cell = kv;
-    }
-  }
-  
-  if (!cell) {
+  const cell = row.cells[keyID];
+  if (!cell || !cell.value) {
     return "";
   }
   
-  // 提取值
-  const value = cell.value ?? cell.values?.[0]?.value ?? cell.values?.[0];
-  
-  // 根据类型转换
-  const keyType = props.keyTypeById[keyID];
+  const value = cell.value;
+  const keyType = taskStore.keyTypeById[keyID];
   
   if (keyType === "block" && value?.block) {
     // block 类型：直接使用 block.content
@@ -252,59 +211,30 @@ function extractFieldValue(row: any, keyID: string): any {
     return "";
   }
   
-  // 默认使用 valueToText
-  return valueToText(value);
+  // 默认使用 text
+  return cell.text || valueToText(value);
 }
 
 // 初始化字段列表和值
 function initializeFields() {
   console.info("[dgrrb] TaskDetailDialog: initializeFields called");
   
-  const row = findRowInRawData(props.rowId);
+  const row = getRowFromTableData(props.rowId);
   
   if (!row) {
-    console.warn("[dgrrb] TaskDetailDialog: row not found for rowId:", props.rowId);
-    console.warn("[dgrrb] RawData structure:", {
-      hasView: !!props.rawData?.view,
-      hasData: !!props.rawData?.data,
-      rawDataKeys: Object.keys(props.rawData || {}),
-    });
+    console.warn("[dgrrb] TaskDetailDialog: row not found for itemID:", props.rowId);
     return;
   }
   
   console.info("[dgrrb] TaskDetailDialog: row found", row);
   
-  // 获取所有字段定义 - 从 keyTypeById 中获取所有已知的字段
-  const allKeyIds = Object.keys(props.keyTypeById);
-  console.info("[dgrrb] TaskDetailDialog: allKeyIds", allKeyIds);
-  
-  // 尝试从 rawData 中获取字段名称和选项
-  const view = props.rawData?.view ?? props.rawData?.data?.view;
-  const columns = view?.columns ?? view?.data?.columns ?? [];
-  const columnMap = new Map<string, any>();
-  
-  if (Array.isArray(columns)) {
-    console.info("[dgrrb] TaskDetailDialog: found columns", columns.length);
-    for (const col of columns) {
-      const keyId = col.keyID || col.keyId || col.id;
-      if (keyId) {
-        columnMap.set(keyId, col);
-      }
-    }
-  } else {
-    console.warn("[dgrrb] TaskDetailDialog: columns is not an array", columns);
-  }
-  
-  // 构建字段列表 - 使用所有在 keyTypeById 中的字段
-  fields.value = allKeyIds.map((keyID) => {
-    const col = columnMap.get(keyID);
-    return {
-      keyID,
-      name: col?.name || col?.label || keyID,
-      type: props.keyTypeById[keyID] || "text",
-      options: col?.options || col?.option || [],
-    };
-  });
+  // 从 store 获取字段定义
+  fields.value = taskStore.tableData.columns.map((col) => ({
+    keyID: col.keyID,
+    name: col.name,
+    type: col.type,
+    options: col.options || [],
+  }));
   
   console.info("[dgrrb] TaskDetailDialog: fields built", fields.value);
   
@@ -331,46 +261,28 @@ async function handleSave() {
   saving.value = true;
   
   try {
-    // 构建更新数组
-    const updates: Array<{ keyID: string; value: any; keyType?: string }> = [];
+    // 构建更新对象
+    const updates: Record<string, any> = {};
     
     for (const field of fields.value) {
       const newValue = fieldValues.value[field.keyID];
-      const keyType = props.keyTypeById[field.keyID];
+      const keyType = taskStore.keyTypeById[field.keyID];
       
       // 构建值对象
       const valueObj = buildValue(keyType, newValue);
-      
-      updates.push({
-        keyID: field.keyID,
-        value: valueObj,
-        keyType,
-      });
+      updates[field.keyID] = valueObj;
     }
     
-    if (updates.length === 0) {
+    if (Object.keys(updates).length === 0) {
       showMessage("没有需要保存的更改", 3000, "info");
       saving.value = false;
       return;
     }
     
-    // 构建批量请求的 values 数组
-    const values = updates.map(({ keyID, value }) => ({
-      keyID,
-      itemID: props.rowId, // itemID 必须是 row.id (docId)
-      value,
-    }));
+    console.info(`[dgrrb] TaskDetailDialog: saving ${Object.keys(updates).length} fields for itemID ${props.rowId}`, updates);
     
-    console.info(`[dgrrb] TaskDetailDialog: saving ${updates.length} fields for row ${props.rowId}`, values);
-    
-    const resp = await batchSetAttributeViewBlockAttrs(props.avID, values);
-    
-    if (resp && resp.code !== 0) {
-      console.error(`[dgrrb] TaskDetailDialog: save failed:`, resp);
-      showMessage("保存失败", 5000, "error");
-      saving.value = false;
-      return;
-    }
+    // 使用 store 的 updateFields 方法
+    await taskStore.updateFields(props.rowId, updates);
     
     console.info(`[dgrrb] TaskDetailDialog: save success`);
     showMessage("保存成功", 2000, "info");
@@ -396,9 +308,6 @@ onMounted(() => {
   console.info("[dgrrb] TaskDetailDialog mounted, initializing fields...");
   console.info("[dgrrb] Props:", {
     rowId: props.rowId,
-    avID: props.avID,
-    hasRawData: !!props.rawData,
-    keyTypeCount: Object.keys(props.keyTypeById).length,
   });
   initializeFields();
   console.info("[dgrrb] TaskDetailDialog fields initialized, count:", fields.value.length);
