@@ -16,9 +16,14 @@ const pluginInfo = require("./plugin.json")
 export default defineConfig(({
   mode,
 }) => {
-
-  console.log('mode=>', mode)
-  const env = loadEnv(mode, process.cwd())
+  const args = minimist(process.argv.slice(2))
+  const isWatch = args.watch || args.w || false
+  
+  // 如果是 watch 模式，强制使用 development 模式
+  const actualMode = isWatch ? 'development' : (mode || 'production')
+  
+  console.log('mode=>', actualMode)
+  const env = loadEnv(actualMode, process.cwd())
   const {
     VITE_SIYUAN_WORKSPACE_PATH,
   } = env
@@ -35,8 +40,6 @@ export default defineConfig(({
   }
   console.log(`\nPlugin will build to:\n${devDistDir}`)
 
-  const args = minimist(process.argv.slice(2))
-  const isWatch = args.watch || args.w || false
   const distDir = isWatch ? devDistDir : "./dist"
 
   console.log()
@@ -84,7 +87,7 @@ export default defineConfig(({
     // 在这里自定义变量
     define: {
       "process.env.DEV_MODE": `"${isWatch}"`,
-      "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV),
+      "process.env.NODE_ENV": JSON.stringify(isWatch ? 'development' : (process.env.NODE_ENV || 'production')),
     },
 
     build: {
