@@ -108,7 +108,7 @@
       <div>加载中... (字段数: {{ fields.length }})</div>
       <div style="margin-top: 8px; font-size: 12px; opacity: 0.7;">
         rowId: {{ rowId }}<br/>
-        keyTypeById keys: {{ Object.keys(keyTypeById).length }}
+        keyTypeById keys: {{ Object.keys(taskStore.keyTypeById || {}).length }}
       </div>
     </div>
     
