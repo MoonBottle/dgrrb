@@ -130,17 +130,17 @@ const rowCount = computed(() => {
 // 获取筛选器的可选项
 function getFilterOptions(keyID: string | undefined): string[] {
   if (!keyID) return [];
-
+  
   // 首先尝试从 keysById 中获取 key 定义和 options
   const keyDef = taskStore.keysById[keyID];
-
+  
   if (keyDef?.options && Array.isArray(keyDef.options)) {
     return keyDef.options.map((opt: any) => {
       if (typeof opt === "string") return opt;
       return opt.name || opt.content || "";
     }).filter(Boolean);
   }
-
+  
   // 如果没有 options，从 tableData 中提取所有已使用的值
   const values = new Set<string>();
   for (const row of taskStore.tableData.rows) {
@@ -160,7 +160,7 @@ const filteredTasks = computed(() => {
   const filteredRows = taskStore.getFilteredRows;
   const config = configStore.currentConfig;
   if (!config) return [];
-
+  
   return filteredRows.map(row => {
     const startCell = config.startKeyID ? row.cells[config.startKeyID] : undefined;
     const endCell = config.endKeyID ? row.cells[config.endKeyID] : undefined;

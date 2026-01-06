@@ -163,6 +163,11 @@ function applyTasks() {
     gantt.clearAll();
     (gantt as any).parse({ data, tasks: data });
     gantt.render();
+    
+    // 延迟修复子任务的DOM结构
+    setTimeout(() => {
+      fixChildTaskContent();
+    }, 200);
   } catch (err) {
     console.error("[dgrrb] gantt apply error:", err);
   } finally {
@@ -171,6 +176,75 @@ function applyTasks() {
       isApplying.value = false;
     }, 0);
   }
+}
+
+// 修复子任务的DOM结构，确保内容正确显示
+function fixChildTaskContent() {
+  if (!el.value) return;
+  
+  // 查找所有子任务的单元格
+  const cells = el.value.querySelectorAll('.gantt_cell_tree');
+  cells.forEach((cell: Element) => {
+    const cellEl = cell as HTMLElement;
+    // 检查是否有 gantt_tree_indent 但没有任务内容
+    const indent = cellEl.querySelector('.gantt_tree_indent');
+    const existingContent = cellEl.querySelector('.dgrrb-task-content');
+    
+    if (indent && !existingContent) {
+      // 查找任务ID
+      const row = cellEl.closest('.gantt_row');
+      if (row) {
+        const taskId = row.getAttribute('task_id');
+        if (taskId) {
+          const task = gantt.getTask(taskId);
+          if (task && task.text) {
+            // 重新应用模板
+            const hasChild = gantt.hasChild(task.id);
+            const rowId = (task as any).rowId || (ganttIdByRef.value.get(String(task.id)));
+            const detailBtnId = `dgrrb-detail-btn-${task.id}`;
+            const html = `
+              <div class="dgrrb-task-content" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                <span class="${hasChild ? 'dgrrb-gantt-bold' : ''}" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${task.text || ''}</span>
+                <button 
+                  id="${detailBtnId}"
+                  class="dgrrb-gantt-detail-btn" 
+                  data-row-id="${rowId}"
+                  style="
+                    background: none;
+                    border: none;
+                    cursor: pointer;
+                    padding: 2px 4px;
+                    opacity: 0.6;
+                    font-size: 12px;
+                    flex-shrink: 0;
+                    margin-left: 8px;
+                  "
+                  title="查看详情"
+                >查看详情</button>
+              </div>
+            `;
+            
+            // 插入到 indent 之后
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = html;
+            const contentDiv = tempDiv.firstElementChild as HTMLElement;
+            if (contentDiv) {
+              // 查找 .gantt_tree_content，如果存在则插入其中，否则插入到 indent 之后
+              const treeContent = cellEl.querySelector('.gantt_tree_content');
+              if (treeContent) {
+                treeContent.appendChild(contentDiv);
+              } else {
+                indent.parentNode?.insertBefore(contentDiv, indent.nextSibling);
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+  
+  // 重新绑定详情按钮事件
+  bindDetailButtons();
 }
 
 onMounted(() => {
@@ -222,8 +296,8 @@ onMounted(() => {
         const rowId = t.rowId || (ganttIdByRef.value.get(String(t.id)));
         const detailBtnId = `dgrrb-detail-btn-${t.id}`;
         return `
-          <div style="display: flex; align-items: center; gap: 4px;">
-            <span class="${hasChild ? 'dgrrb-gantt-bold' : ''}">${t.text}</span>
+          <div class="dgrrb-task-content" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+            <span class="${hasChild ? 'dgrrb-gantt-bold' : ''}" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${t.text || ''}</span>
             <button 
               id="${detailBtnId}"
               class="dgrrb-gantt-detail-btn" 
@@ -235,6 +309,8 @@ onMounted(() => {
                 padding: 2px 4px;
                 opacity: 0.6;
                 font-size: 12px;
+                flex-shrink: 0;
+                margin-left: 8px;
               "
               title="查看详情"
             >查看详情</button>
@@ -837,11 +913,154 @@ watch(
 
   :deep(.gantt_tree_content) {
     overflow: visible !important;
+    display: flex !important;
+    align-items: center !important;
+    width: 100% !important;
   }
 
   /* Make sure branch lines / tree is visible */
   :deep(.gantt_tree_icon) {
     margin-right: 4px;
+  }
+
+  /* 强制任务名称和按钮的布局 */
+  :deep(.gantt_cell_tree) {
+    display: flex !important;
+    align-items: center !important;
+    position: relative !important;
+    
+    /* 确保所有任务内容（包括子任务）都正确显示 */
+    .dgrrb-task-content {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      width: 100% !important;
+      flex: 1 !important;
+      min-width: 0 !important;
+      
+      > span {
+        flex: 1 !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+        min-width: 0 !important;
+      }
+      
+      > button.dgrrb-gantt-detail-btn {
+        flex-shrink: 0 !important;
+        margin-left: 8px !important;
+      }
+    }
+    
+    /* 确保 .gantt_tree_content 正确显示 */
+    .gantt_tree_content {
+      display: flex !important;
+      align-items: center !important;
+      width: 100% !important;
+      flex: 1 !important;
+      min-width: 0 !important;
+      
+      /* 针对模板返回的div */
+      > div.dgrrb-task-content,
+      > div {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        width: 100% !important;
+        flex: 1 !important;
+        min-width: 0 !important;
+        
+        > span {
+          flex: 1 !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+          white-space: nowrap !important;
+          min-width: 0 !important;
+        }
+        
+        > button.dgrrb-gantt-detail-btn {
+          flex-shrink: 0 !important;
+          margin-left: 8px !important;
+        }
+      }
+    }
+    
+    /* 针对直接子元素（子任务可能没有 .gantt_tree_content） */
+    > div:not(.gantt_tree_icon):not(.gantt_tree_indent) {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      width: 100% !important;
+      flex: 1 !important;
+      min-width: 0 !important;
+      
+      > span {
+        flex: 1 !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+        min-width: 0 !important;
+      }
+      
+      > button.dgrrb-gantt-detail-btn {
+        flex-shrink: 0 !important;
+        margin-left: 8px !important;
+      }
+    }
+    
+    /* 确保 gantt_tree_indent 后的内容正确显示 */
+    .gantt_tree_indent {
+      flex-shrink: 0 !important;
+    }
+    
+    /* 匹配 gantt_tree_indent 后的任何div（模板内容） - 子任务的情况 */
+    .gantt_tree_indent ~ div:not(.gantt_tree_icon),
+    .gantt_tree_indent + .gantt_tree_content {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      flex: 1 !important;
+      min-width: 0 !important;
+      
+      &.dgrrb-task-content,
+      > div.dgrrb-task-content {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        width: 100% !important;
+        flex: 1 !important;
+        min-width: 0 !important;
+      }
+      
+      > span {
+        flex: 1 !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+        min-width: 0 !important;
+      }
+      
+      > button.dgrrb-gantt-detail-btn {
+        flex-shrink: 0 !important;
+        margin-left: 8px !important;
+      }
+    }
+    
+    /* 通用规则：确保所有包含按钮的div都正确布局 */
+    div:has(> button.dgrrb-gantt-detail-btn) {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      width: 100% !important;
+      flex: 1 !important;
+      min-width: 0 !important;
+    }
+    
+    /* 确保按钮在所有情况下都右对齐 */
+    .dgrrb-gantt-detail-btn {
+      flex-shrink: 0 !important;
+      margin-left: auto !important;
+    }
   }
 }
 </style>
